@@ -88,9 +88,10 @@ namespace GTAZ.Core
         public bool EnableFactions { get; set; } = true;
         public int FactionSpawnTarget { get; set; } = 10;
         public int OutpostDefenderCount { get; set; } = 20;
-        // Minutes between The Families' raiding parties near the player (the "Families Patrol
-        // Interval (min)" slider). 5 min keeps the map active; tune up if it feels like a
-        // constant firefight.
+        // Minutes between The Families' gang-car encounters near the player (the "Families
+        // Encounter Interval (min)" slider). 1-2 cars full of GSF crew cruise the area and chase
+        // the player on sight; 5 min keeps the map active, tune up if it feels constant. The
+        // "Bandit" prefix is the legacy config/save key - do not rename (INI compatibility).
         public int BanditPatrolIntervalMinutes { get; set; } = 5;
         public bool ShowFactionBlips { get; set; } = true;
         public int MaxRecruits { get; set; } = 4;

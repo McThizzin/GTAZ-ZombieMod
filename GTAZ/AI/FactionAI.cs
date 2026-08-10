@@ -45,7 +45,23 @@ namespace GTAZ.AI
         private Vector3 _driveTarget;
         private int _lastDriveIssueTick;
 
-        private enum Mode { None, Combat, Guard, Follow, Wander, VehicleChase }
+        // The Families car-crew chase (FactionRole.Crew). Crew cruises until it spots the player
+        // (CrewSpotRange + LOS), then CHASES them in the cars - the player is their only focus and
+        // ambient zombies never distract them. Passengers drive-by from the car; the crew only
+        // dismounts to fight when the player is on foot and the cars catch up (CrewDismountRange).
+        // Outrunning them past CrewGiveUpDistance for a few seconds ends the chase: the cars drive
+        // off and the normal FactionDespawnDistance cleanup fades the crew out.
+        private const float CrewSpotRange = 120f;
+        private const float CrewGiveUpDistance = 300f;
+        private const int CrewGiveUpTicks = 240;
+        private const float CrewDismountRange = 15f;
+        private const float CrewDriveByRange = 40f;
+
+        private bool _crewEngaged;
+        private int _crewLostTicks;
+        private int _crewTaskReissueTick;
+
+        private enum Mode { None, Combat, Guard, Follow, Wander, VehicleChase, CrewCruise, CrewPursuit, CrewDriveBy }
         private Mode _mode = Mode.None;
 
         // No scripted "player aggro" here. Friendly faction peds (survivor guards, recruits) are
@@ -76,6 +92,15 @@ namespace GTAZ.AI
             _tickCounter++;
             if (_tickCounter % _updateInterval != 0)
                 return;
+
+            // Gang-car crew (The Families encounter) runs its own state machine - it never uses
+            // the on-foot scan below: the player is the crew's only focus, so zombies/rivals must
+            // not pull a crew member out of the car or off a cruise (the user's design).
+            if (Role == FactionRole.Crew)
+            {
+                UpdateCrew();
+                return;
+            }
 
             float range = Role == FactionRole.Recruit
                 ? ModConfig.Current.RecruitCombatRange
@@ -196,6 +221,247 @@ namespace GTAZ.AI
             _lastDriveIssueTick = _tickCounter;
             Function.Call(Hash.TASK_VEHICLE_DRIVE_TO_COORD_LONGRANGE, Ped, vehicle,
                 _driveTarget.X, _driveTarget.Y, _driveTarget.Z, VehicleChaseSpeed, 786603, 3f);
+        }
+
+        // --- The Families car-crew chase (FactionRole.Crew) ---
+        //
+        // States: CrewCruise (unspotted, driving the area) -> CrewPursuit (driver chases) /
+        // CrewDriveBy (passengers shoot from the car) -> dismount to on-foot Combat when the
+        // player is on foot and the cars catch up, or the car stalls (driver dead). The pursuit
+        // only ends when the player outruns the crew (CrewGiveUpDistance for a sustained stretch)
+        // - then the cars drive off and the distance-despawn fades them out.
+        private void UpdateCrew()
+        {
+            var player = Game.Player.Character;
+            bool playerOk = player?.Exists() is true && !player.IsDead;
+
+            bool inVehicle = Ped.IsInVehicle() && Ped.CurrentVehicle?.Exists() is true;
+
+            if (!_crewEngaged)
+            {
+                // Cruising. Only engage when the player is actually spotted - the crew is hunting,
+                // so it sees further than an on-foot patrol, but still needs LOS (no aggro through
+                // walls while cruising).
+                if (playerOk)
+                {
+                    float spotDist = SpawnUtils.HorizontalDistance(Ped.Position, player.Position);
+                    if (spotDist <= CrewSpotRange && Ped.HasClearLineOfSightTo(player))
+                    {
+                        _crewEngaged = true;
+                        _crewLostTicks = 0;
+                    }
+                }
+
+                if (!_crewEngaged)
+                {
+                    IssueCrewCruise();
+                    return;
+                }
+            }
+
+            if (!playerOk)
+            {
+                DisengageCrew(driveAway: true);
+                return;
+            }
+
+            float dist = SpawnUtils.HorizontalDistance(Ped.Position, player.Position);
+
+            // Lost the player: outrun past CrewGiveUpDistance for a sustained stretch -> give up,
+            // drive off, and let the distance-despawn fade the crew out.
+            if (dist > CrewGiveUpDistance)
+            {
+                _crewLostTicks++;
+                if (_crewLostTicks > CrewGiveUpTicks)
+                {
+                    DisengageCrew(driveAway: true);
+                    return;
+                }
+            }
+            else
+            {
+                _crewLostTicks = 0;
+            }
+
+            if (inVehicle)
+            {
+                bool playerInVehicle = player.IsInVehicle();
+                bool driverDead = Ped.CurrentVehicle.Driver?.IsDead != false;
+                bool nearOnFoot = !playerInVehicle && dist <= CrewDismountRange;
+
+                // The car is stalled (driver dead) or the player is on foot and the cars have
+                // caught up: pile out and fight on foot (the "stand off" resolution).
+                if (driverDead || nearOnFoot)
+                {
+                    DismountAndFight(player);
+                    return;
+                }
+
+                if (IsCrewDriver())
+                {
+                    // Driver: keep the car on the player across the whole pursuit.
+                    if (_mode != Mode.CrewPursuit || _taskTarget != player)
+                    {
+                        _mode = Mode.CrewPursuit;
+                        _taskTarget = player;
+                        _crewTaskReissueTick = 0;
+                        // Aggressive ramming + PIT attempts so the pursuit actually harries the
+                        // player's car instead of convoying politely behind it.
+                        Function.Call(Hash.SET_TASK_VEHICLE_CHASE_BEHAVIOR_FLAG, Ped, 1, true);
+                        Function.Call(Hash.SET_TASK_VEHICLE_CHASE_BEHAVIOR_FLAG, Ped, 16, true);
+                        Function.Call(Hash.TASK_VEHICLE_CHASE, Ped, player);
+                    }
+                    else
+                    {
+                        ReissueCrewTask();
+                    }
+                }
+                else
+                {
+                    // Passenger: lean out and shoot the player from the car.
+                    if (_mode != Mode.CrewDriveBy || _taskTarget != player)
+                    {
+                        _mode = Mode.CrewDriveBy;
+                        _taskTarget = player;
+                        IssueDriveBy(player);
+                    }
+                    else
+                    {
+                        ReissueCrewTask();
+                    }
+                }
+                return;
+            }
+
+            // Dismounted (bailed, car wrecked, or mid-standoff): fight the player on foot. No
+            // re-mount choreography - once the crew is out, the fight stays on foot (same rule
+            // as The Lost riders).
+            DismountAndFight(player);
+        }
+
+        // Leaves the car (if still in it) and fights the player on foot. The exit task must be
+        // given alone - TASK_COMBAT_PED now would cancel it - so combat is set for the next
+        // Update pass once the ped is out.
+        private void DismountAndFight(Ped player)
+        {
+            if (Ped.IsInVehicle())
+            {
+                Function.Call(Hash.TASK_LEAVE_VEHICLE, Ped, Ped.CurrentVehicle, 0);
+                _mode = Mode.Combat;
+                _taskTarget = player;
+                return;
+            }
+
+            if (_mode != Mode.Combat || _taskTarget != player)
+            {
+                _mode = Mode.Combat;
+                _taskTarget = player;
+                Function.Call(Hash.TASK_COMBAT_PED, Ped, player, 0, 16);
+            }
+        }
+
+        private bool IsCrewDriver()
+        {
+            if (Ped.CurrentVehicle?.Exists() is not true)
+                return false;
+            return Ped.CurrentVehicle.Driver == Ped;
+        }
+
+        // Passenger drive-by: TASK_DRIVE_BY aims and fires at the player from the car window.
+        // The firing pattern (0x9C00E9AF) is the mission drive-by burst. Accuracy 60 matches the
+        // survivor shooters so the drive-by is threatening without being a sniper.
+        private void IssueDriveBy(Ped target)
+        {
+            _crewTaskReissueTick = 0;
+            var targetPos = target.Position;
+            Function.Call(Hash.TASK_DRIVE_BY, Ped, target, target.CurrentVehicle,
+                targetPos.X, targetPos.Y, targetPos.Z, CrewDriveByRange, 60, false, unchecked((int)0x9C00E9AF));
+        }
+
+        // The chase/drive-by tasks are self-sustaining but the engine can clear them (blocked
+        // events, physics, task-slot reuse). Re-issue on a slow cadence so a cleared task recovers
+        // without the brake-stutter of re-issuing every update (lessons 37/38).
+        private void ReissueCrewTask()
+        {
+            if (_crewTaskReissueTick < 300)
+            {
+                _crewTaskReissueTick++;
+                return;
+            }
+            _crewTaskReissueTick = 0;
+
+            var player = Game.Player.Character;
+            if (player?.Exists() is not true)
+                return;
+
+            if (_mode == Mode.CrewPursuit)
+                Function.Call(Hash.TASK_VEHICLE_CHASE, Ped, player);
+            else if (_mode == Mode.CrewDriveBy)
+                IssueDriveBy(player);
+        }
+
+        // Idle cruise: drive-wander the crew's Origin while unspotted (12 m/s so the cars cruise
+        // visibly instead of piling up on a corner). Re-issued on a cadence - the engine can clear
+        // it (lesson 37). A passenger does nothing (the driver's task moves the car); an unmounted
+        // crew member wanders on foot.
+        private void IssueCrewCruise()
+        {
+            bool inVehicle = Ped.IsInVehicle() && Ped.CurrentVehicle?.Exists() is true;
+
+            if (inVehicle && !IsCrewDriver())
+            {
+                _mode = Mode.CrewCruise;
+                _crewTaskReissueTick = 0;
+                return;
+            }
+
+            if (_mode == Mode.CrewCruise && _crewTaskReissueTick < 360)
+            {
+                _crewTaskReissueTick++;
+                return;
+            }
+            _crewTaskReissueTick = 0;
+            _mode = Mode.CrewCruise;
+
+            if (inVehicle)
+            {
+                Function.Call(Hash.TASK_VEHICLE_DRIVE_WANDER, Ped, Ped.CurrentVehicle, 12f, 786603);
+            }
+            else
+            {
+                Ped.Task.ClearAll();
+                Function.Call(Hash.TASK_WANDER_IN_AREA, Ped, Origin.X, Origin.Y, Origin.Z, 20f, 0f, 0f);
+            }
+        }
+
+        // End the pursuit: the crew gives up on the player. With driveAway (lost them / player
+        // gone) the driver floors it away from the player so the normal FactionDespawnDistance
+        // cleanup fades the whole crew out - a natural "they gave up and left" resolution instead
+        // of a pop-out. Passengers ride along; a dismounted crew member just cruises on foot.
+        private void DisengageCrew(bool driveAway = false)
+        {
+            _crewEngaged = false;
+            _crewLostTicks = 0;
+            _crewTaskReissueTick = 0;
+            _taskTarget = null;
+
+            if (driveAway && Ped.IsInVehicle() && Ped.CurrentVehicle?.Exists() is true && IsCrewDriver())
+            {
+                var player = Game.Player.Character;
+                var from = player?.Exists() is true ? player.Position : Ped.Position;
+                Vector3 away = Ped.Position - from;
+                away.Z = 0f;
+                if (away.LengthSquared() < 1f)
+                    away = new Vector3(0f, 1f, 0f);
+                away = away.Normalized;
+                Vector3 target = Ped.Position + (away * 400f);
+                _mode = Mode.CrewCruise;
+                Function.Call(Hash.TASK_VEHICLE_DRIVE_TO_COORD_LONGRANGE, Ped, Ped.CurrentVehicle,
+                    target.X, target.Y, target.Z, 16f, 786603, 5f);
+                return;
+            }
+
+            IssueCrewCruise();
         }
 
         private void ApplyIdleTask()

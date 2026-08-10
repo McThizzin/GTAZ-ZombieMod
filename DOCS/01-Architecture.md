@@ -209,11 +209,11 @@ save-restore) is delegated to `TerritorySystem`; spawning (ambient/patrol/defend
 
 ### Systems/FactionSpawner.cs
 Owns every faction ped's `SpawnRequest`: ambient faction members (weighted by
-`AmbientSpawnWeight`, forced to the holding faction inside hostile turf), The Families' timed
-patrol, and all territory-bound peds (`SpawnFactionPed` — defenders, reinforcement waves, raid
-raiders, outpost guards) plus Lost biker mounting. Territory-bound spawns enqueue Critical so they
-grant ahead of hordes/ambient zombies; spawned peds are essential-marked and recorded into
-FactionSystem's active list via callbacks.
+`AmbientSpawnWeight`, forced to the holding faction inside hostile turf), The Families' gang-car
+encounter (`TryFamiliesEncounter`), and all territory-bound peds (`SpawnFactionPed` — defenders,
+reinforcement waves, raid raiders, outpost guards) plus Lost biker mounting. Territory-bound
+spawns enqueue Critical so they grant ahead of hordes/ambient zombies; spawned peds are
+essential-marked and recorded into FactionSystem's active list via callbacks.
 
 ### Systems/TerritorySystem.cs
 Owns the 12 `TerritoryZone`s (built by `TerritoryCatalog`), their blips, and all capture/raid/

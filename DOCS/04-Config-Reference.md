@@ -66,7 +66,7 @@ the menu item and update this table.
 | `EnableFactions` | true | Factions + territory master switch. |
 | `FactionSpawnTarget` | 10 | Per-faction ambient spawn cap near the player. |
 | `ShowFactionBlips` | true | Faction ped blips. |
-| `BanditPatrolIntervalMinutes` | 5 | Minutes between The Families' raiding parties (the "Families Patrol Interval (min)" slider). |
+| `BanditPatrolIntervalMinutes` | 5 | Minutes between The Families' gang-car encounters near the player — 1-2 cars of GSF crew cruise the area and chase on sight (the "Families Encounter Interval (min)" slider). Legacy "Bandit" key kept for save/INI compatibility. |
 | `OutpostDefenderCount` | 20 | Defenders at hostile zones / guards at owned zones. |
 | `MaxRecruits` | 4 | Recruit squad cap. |
 | `RecruitCombatRange` | 100f | Distance recruits fight zombies at. |

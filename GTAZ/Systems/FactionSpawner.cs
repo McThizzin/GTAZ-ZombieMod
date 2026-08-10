@@ -31,8 +31,20 @@ namespace GTAZ.Systems
     {
         private const float LostRiderChance = 0.6f;
 
+        // The Families' gang cars (Phase 5 encounter rework, DOCS/11-Refactoring-Plan.md §7.3):
+        // Faction Custom Donk (faction3, hash 2255212070), Voodoo Custom (voodoo2, hash
+        // 2006667053) and Cavalcade XL (cavalcade3, hash 3265236814).
+        private static readonly VehicleHash[] _familiesCars =
+        [
+            VehicleHash.Faction3,  // faction3
+            VehicleHash.Voodoo2,   // voodoo2
+            VehicleHash.Cavalcade3 // cavalcade3
+        ];
+
+        private static readonly int[] _crewSeats = [-1, 0, 1, 2];
+
         private int _ambientSpawnTimer;
-        private int _banditPatrolTimer;
+        private int _familiesEncounterTimer;
 
         // Weighted ambient spawn near the player (only factions with AmbientSpawnWeight > 0).
         public void TryAmbientSpawn()
@@ -79,38 +91,116 @@ namespace GTAZ.Systems
             SpawnFactionPed(faction, pos, FactionRole.Patrol, null);
         }
 
-        // Periodic bandit raiding party near the player, OUTSIDE any territory. Territories are
-        // event-driven: owned zones only see bandits via timer raids, hostile zones via their
-        // defenders + defense waves. This used to anchor the patrol to the held zone center every
-        // BanditPatrolIntervalMinutes, which is exactly the "bandits keep attacking my territory over
-        // and over" complaint.
-        public void TryBanditPatrol()
+        // The Families car encounter (the former "bandit patrol" - renamed in the Phase 5 rework,
+        // DOCS/11-Refactoring-Plan.md §7.3): 1-2 gang cars full of Families crew (4-8 GSF members)
+        // roll through the area OUTSIDE any territory. The crew cruises until it spots the player,
+        // then CHASES them in the cars (drive-by shooting from the passengers) - the player is
+        // their only focus, never ambient zombies. This is an open-world encounter, NOT a territory
+        // attack: owned zones only see Families via the home-faction timer raids and hostile zones
+        // via their defenders + defense waves. The old version anchored a raiding party to a held
+        // zone center every BanditPatrolIntervalMinutes - exactly the "bandits keep attacking my
+        // territory over and over" complaint.
+        public void TryFamiliesEncounter()
         {
             var config = ModConfig.Current;
 
-            _banditPatrolTimer++;
+            _familiesEncounterTimer++;
             int interval = Math.Max(60, config.BanditPatrolIntervalMinutes * 60 * 60);
-            if (_banditPatrolTimer < interval)
+            if (_familiesEncounterTimer < interval)
                 return;
-            _banditPatrolTimer = 0;
+            _familiesEncounterTimer = 0;
 
             if (countAlive(families) >= config.FactionSpawnTarget + 4)
                 return;
-            if (budget.Available <= 0)
+            if (budget.Available < 4)
                 return;
 
             var playerPos = Game.Player.Character.Position;
             if (isInAnyTerritory(playerPos))
                 return;
 
-            int count = rng.Next(3, 5);
-            for (int i = 0; i < count; i++)
+            int carsSpawned = 0;
+            int carCount = rng.Next(1, 3);
+            for (int c = 0; c < carCount; c++)
             {
-                var pos = SpawnUtils.FindSafePosition(playerPos, 100f, 200f);
-                if (pos == Vector3.Zero || isInAnyTerritory(pos))
+                if (budget.Available < 4)
+                    break;
+
+                // Each car gets its own street point (FindSafePosition probes terrain first; the
+                // 40m offset per car keeps the two cars from stacking on one road).
+                var anchor = SpawnUtils.FindSafePosition(playerPos, (100f + (c * 40f)), (200f + (c * 40f)));
+                if (anchor == Vector3.Zero)
                     continue;
-                SpawnFactionPed(families, pos, FactionRole.Raider, null);
+                var roadPos = World.GetNextPositionOnStreet(anchor);
+                var spawnPos = roadPos != Vector3.Zero ? roadPos : anchor;
+                if (isInAnyTerritory(spawnPos))
+                    continue;
+
+                var car = CreateCrewCar(spawnPos);
+                if (car is null)
+                    continue;
+
+                if (!SpawnCrewForCar(car, spawnPos))
+                {
+                    car.Delete();
+                    continue;
+                }
+                carsSpawned++;
             }
+
+            if (carsSpawned > 0)
+                GTA.UI.Notification.PostTicker("~o~A Families patrol is rolling through the area", false);
+        }
+
+        // Creates the crew's gang car. World.CreateVehicle(model, ...) requests the model
+        // internally (same pattern as TryMountBike); the car is persistent so the engine's
+        // vehicle cleaner doesn't delete it out from under the crew mid-chase. The driver owns
+        // it (FactionNPC.Vehicle) so Cleanup deletes it and OnDeath hands it back to the game.
+        private Vehicle CreateCrewCar(Vector3 pos)
+        {
+            var model = new Model(_familiesCars[rng.Next(_familiesCars.Length)]);
+            var car = World.CreateVehicle(model, pos, rng.Next(0, 360));
+            if (car?.Exists() is not true)
+                return null;
+            car.IsPersistent = true;
+            return car;
+        }
+
+        // Spawns the crew for one car (driver + 3 passengers = 4 GSF members). The crew spawns
+        // synchronously through the budget (TryRequestAndSpawn, Active priority) rather than the
+        // SpawnRequestQueue so a car never half-populates over the queue's 3-grants-a-pass - a
+        // half-full car reads as a bug. Returns false if the driver couldn't spawn (the caller
+        // deletes the car); a failed passenger just leaves that seat empty. The driver carries
+        // the car reference (npc.Vehicle) like the bikers' bikes.
+        private bool SpawnCrewForCar(Vehicle car, Vector3 origin)
+        {
+            foreach (int seat in _crewSeats)
+            {
+                var outcome = budget.TryRequestAndSpawn(PedCategory.FactionNpc, PedPriority.Active,
+                    origin, () =>
+                    {
+                        var modelHash = families.PedModels[rng.Next(families.PedModels.Length)];
+                        var model = new Model(modelHash);
+                        model.Request();
+                        return World.CreatePed(model, origin, rng.Next(0, 360));
+                    }, out var slot);
+
+                if (outcome != PedBudgetManager.SpawnOutcome.Spawned)
+                {
+                    if (seat == -1)
+                        return false;
+                    continue;
+                }
+
+                var ped = slot.Ped;
+                var weapon = ped.MakeFactionLike(families);
+                var npc = new FactionNPC(ped, families, origin, FactionRole.Crew, null, slot, weapon);
+                if (seat == -1)
+                    npc.Vehicle = car;
+                Function.Call(Hash.TASK_WARP_PED_INTO_VEHICLE, ped, car, seat);
+                addActivePed(npc);
+            }
+            return true;
         }
 
         public void SpawnFactionPed(FactionDef faction, Vector3 pos, FactionRole role,

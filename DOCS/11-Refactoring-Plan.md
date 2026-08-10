@@ -243,7 +243,7 @@ upper bound; step in parens):
 | SURVIVORS | Despawn Distance (m) | 300 | 1000 | 50 |
 | FACTIONS | Per-Faction Spawn Target | 10 | 10 | 1 |
 | FACTIONS | Outpost Defender Count | 20 | 25 | 1 |
-| FACTIONS | Families Patrol Interval (min) | ~~15~~ 5 | 120 | ~~1~~ 5 |
+| FACTIONS | Families Encounter Interval (min) | ~~15~~ 5 | 120 | ~~1~~ 5 |
 | FACTIONS | Max Recruits | 4 | ~~15~~ 8 | 1 |
 | FACTIONS | Recruit Combat Range (m) | 100 | 100 | 5 |
 | TERRITORY | Max Player Zones | 5 | 10 | 1 |
@@ -283,14 +283,21 @@ ring, then killed ambient faction peds for 15 minutes with zero defense-quota lo
    dropped in quickly to verify wave spawning and can be moved to more optimal spots (in-ring,
    on open ground, clear of pathing traps) later. Re-locating them should reduce the out-of-reach
    defender cases from (1) — Hawick's points sit 80-203m from center, up to ~400m in early notes.
-3. **The Families patrol — misleading name + planned rework.** `BanditPatrolIntervalMinutes`
-   ("Families Patrol Interval (min)") is a timed **open-world encounter** (3-4 Families spawn
-   100-200m from the player every N minutes, outside any territory), NOT a territory attack — the
-   menu label, `04-Config-Reference.md`, and AGENTS.md all describe it as "patrols/raiding parties"
-   which reads like territory action. (Territory attacks come from each zone's **home faction**,
-   not just Families — see the owned-zone raid path.) The user has an exact rework of how this
-   encounter should function; it is **deferred until the refactor is complete** (do not rename or
-   change behavior before then — revisit when the user shares the design).
+3. ~~The Families patrol — misleading name + planned rework~~ **DONE (Phase 5 round 9, user
+   design).** `BanditPatrolIntervalMinutes` ("Families Patrol Interval (min)") was a timed
+   **open-world encounter** (3-4 Families spawn 100-200m from the player every N minutes, outside
+   any territory), NOT a territory attack — the menu label, `04-Config-Reference.md`, and AGENTS.md
+   all described it as "patrols/raiding parties" which read like territory action. The rework
+   (`TryBanditPatrol` → `TryFamiliesEncounter`, `FactionRole.Crew`) made it a **gang-car chase**:
+   1-2 cars (faction3/voodoo2/cavalcade3) full of GSF crew spawn outside any territory, cruise
+   until they spot the player (120m + LOS), then chase them in the cars — the driver runs
+   `TASK_VEHICLE_CHASE` (aggressive ramming) while passengers drive-by (`TASK_DRIVE_BY`), and the
+   player is the crew's only focus (they never stop for ambient zombies). The crew dismounts to
+   fight on foot only when the player is on foot and the cars catch up (15m) or the driver dies;
+   outrunning them past 300m for ~4s makes them give up and drive off, fading via the normal
+   distance-despawn. A notification fires when the patrol rolls in. The menu label is now "Families
+   Encounter Interval (min)"; the config key stays `BanditPatrolIntervalMinutes` for save/INI
+   compatibility. (Territory attacks still come from each zone's **home faction**, not Families.)
 
 ## 8. Suggested verification checklist (in-game)
 

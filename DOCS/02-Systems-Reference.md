@@ -106,10 +106,18 @@ stable cross-system surface (`HostileTerritoryAt`, `IsPlayerOwnedZone`, `IsInAny
   `EnsurePlayerFacingRelationships()`.
 - **Spawn behavior:** all faction spawn construction lives in `Systems/FactionSpawner.cs` (ticked
   from `FactionSystem.OnTick`): weighted ambient spawns (per-faction `FactionSpawnTarget` cap,
-  360-tick interval), bandit-family patrols (`BanditPatrolIntervalMinutes`, 5), Lost ambient riders
+  360-tick interval), the Families gang-car encounter (`BanditPatrolIntervalMinutes`, 5 — 1-2 cars
+  of GSF crew cruise the area and chase the player on sight, see below), Lost ambient riders
   (`LostRiderChance`, `TryMountBike`, drive-wander, vehicle-chase then dismount ~20m). **Ambient
   members and patrols only spawn OUTSIDE any territory radius** — territories are event-driven
   ground. Ambient/patrol spawns land 100–200m out (outside the 60m ambient pursuit range).
+- **The Families car chase:** `TryFamiliesEncounter` spawns 1-2 gang cars full of `FactionRole.Crew`
+  (4-8 GSF members; faction3/voodoo2/cavalcade3). Crew cruises until it spots the player
+  (`CrewSpotRange` 120m + LOS), then the driver chases (`TASK_VEHICLE_CHASE`, aggressive ramming)
+  and passengers drive-by (`TASK_DRIVE_BY`). They dismount to fight only when the player is on foot
+  and the cars catch up (`CrewDismountRange` 15m) or the driver is dead. Outrunning them past
+  `CrewGiveUpDistance` (300m) for ~4s makes them give up and drive off, fading via the normal
+  distance-despawn. The player is the crew's only focus — ambient zombies never distract them.
 - **`FactionAI` pursuit:** hostile factions chase the player — territory-bound peds (any `HomeZone`)
   up to 300m, ambient patrols 60m, no LOS gate.
 

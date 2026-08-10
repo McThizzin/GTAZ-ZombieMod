@@ -12,7 +12,8 @@ namespace GTAZ.Systems
         Patrol,  // ambient wanderer
         Guard,   // outpost defender/guard - holds a zone center
         Raider,  // bandit patrol member
-        Recruit  // player's group member
+        Recruit, // player's group member
+        Crew     // gang-car crew member (The Families car encounter)
     }
 
     // Wraps a single Phase 4 faction ped plus its budget slot. The slot handle is kept so

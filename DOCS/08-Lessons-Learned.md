@@ -332,7 +332,8 @@ had "a friend blip inside them."
 **Root cause (a):** Respect (1) isn't safe — a Respect ped the player damages still treats the player
 as a combat target. Only Companion (0) never targets the player. (See lessons 27/30.)
 **Root cause (b):** ambient bandit spawners ignored owned zones — `TryAmbientSpawn` landed inside
-owned territory and `TryBanditPatrol` deliberately **anchored the patrol to the held zone's center**,
+owned territory and `TryFamiliesEncounter` (the former `TryBanditPatrol`) deliberately **anchored
+the patrol to the held zone's center**,
 so a fresh raiding party every ~2 min plus ambient drops = "attacked over and over." **Fix:** both
 spawners refuse hostile factions inside `IsPlayerOwnedZone`, and the patrol no longer anchors to held
 zones — owned territory is bandit-free except scripted counter-attack waves (frequency = the

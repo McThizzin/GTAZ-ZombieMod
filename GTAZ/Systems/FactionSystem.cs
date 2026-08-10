@@ -115,7 +115,7 @@ namespace GTAZ.Systems
                 _territory.UpdateTerritoryFights();
                 _recruits.UpdateSoftAim();
                 _spawner.TryAmbientSpawn();
-                _spawner.TryBanditPatrol();
+                _spawner.TryFamiliesEncounter();
                 _territory.UpdateHostileDefenseOverride();
             }
             else

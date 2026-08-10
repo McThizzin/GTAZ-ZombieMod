@@ -147,7 +147,7 @@ namespace GTAZ.UI
             {
                 Value = config.OutpostDefenderCount
             };
-            _banditPatrol = new NativeSliderItem("Families Patrol Interval (min)", "Minutes between The Families' raiding parties", 120, 5)
+            _banditPatrol = new NativeSliderItem("Families Encounter Interval (min)", "Minutes between Families gang-car patrols that cruise the area and chase you on sight", 120, 5)
             {
                 Value = config.BanditPatrolIntervalMinutes
             };

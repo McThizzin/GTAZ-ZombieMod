@@ -76,7 +76,7 @@ capture loop, counter-attacks, recruiting), `FactionAI` + `FactionNPC`, module/m
 ### Round 4 — Fourth playtest
 - **Survivors → Companion (0)** — Respect still retaliates on direct damage; Companion never does.
   Final relationship state (lessons 30/32).
-- **Owned zones bandit-free between attacks** — `TryAmbientSpawn`/`TryBanditPatrol` skip owned
+- **Owned zones bandit-free between attacks** — `TryAmbientSpawn`/`TryFamiliesEncounter` skip owned
   zones; patrol no longer anchors to a held zone (that was "attacked over and over").
 - **Attack frequency is a slider** — `TerritoryFightCooldownSeconds` 120→300 as "Territory Attack
   Interval".
