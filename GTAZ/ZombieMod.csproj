@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>GTAZ</RootNamespace>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>ZombieMod</AssemblyName>
+    <!-- This tells it to output directly to your GTA 5 scripts folder! -->
+    <OutputPath>D:\SteamLibrary\steamapps\common\Grand Theft Auto V\scripts</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Update="vehicles.ini" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Reference ScriptHookVDotNet3 -->
+    <Reference Include="ScriptHookVDotNet3">
+      <HintPath>D:\SteamLibrary\steamapps\common\Grand Theft Auto V\ScriptHookVDotNet3.dll</HintPath>
+      <Private>false</Private> <!-- Don't copy the SHVDN dll to the output -->
+    </Reference>
+    
+    <!-- Reference LemonUI -->
+    <Reference Include="LemonUI.SHVDN3">
+      <HintPath>D:\SteamLibrary\steamapps\common\Grand Theft Auto V\scripts\LemonUI.SHVDN3.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

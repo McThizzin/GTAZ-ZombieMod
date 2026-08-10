@@ -1,0 +1,22 @@
+# .NET build output
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Logs
+*.log
+
+# Third-party reference material (not part of the build)
+ModSamples/
+NATIVES/
+
+# Reference/design data kept local only
+Territories.txt
+
+# Session working files
+analysis-results.json
+config-values.txt
