@@ -32,13 +32,18 @@ namespace GTAZ.Systems
         private const float LostRiderChance = 0.6f;
 
         // The Families' gang cars (Phase 5 encounter rework, DOCS/11-Refactoring-Plan.md §7.3):
-        // Faction Custom Donk (faction3, hash 2255212070), Voodoo Custom (voodoo2, hash
-        // 2006667053) and Cavalcade XL (cavalcade3, hash 3265236814).
+        // Cavalcade XL (cavalcade3, hash 3265236814) plus the player-requested Impaler SZ
+        // (impaler5, hash 3816328113) and Super Diamond (superd, hash 1123216662). The original
+        // faction3/voodoo2 were 2-door cars: _crewSeats is driver + 3 passengers ([-1,0,1,2]), so
+        // warping the back-seat crew into a 2-seater FAILED for seats 1/2 every spawn - a log wall
+        // of "failed initial vehicle warp" plus stranded crew standing next to the car (lesson 46).
+        // The models below are all 4-doors; SpawnCrewForCar also skips seats past the car's
+        // PassengerCapacity as a belt-and-suspenders guard.
         private static readonly VehicleHash[] _familiesCars =
         [
-            VehicleHash.Faction3,  // faction3
-            VehicleHash.Voodoo2,   // voodoo2
-            VehicleHash.Cavalcade3 // cavalcade3
+            VehicleHash.Impaler5,  // impaler5 (Impaler SZ)
+            VehicleHash.Superd,    // superd (Super Diamond)
+            VehicleHash.Cavalcade3 // cavalcade3 (Cavalcade XL)
         ];
 
         private static readonly int[] _crewSeats = [-1, 0, 1, 2];
@@ -128,7 +133,7 @@ namespace GTAZ.Systems
 
                 // Each car gets its own street point (FindSafePosition probes terrain first; the
                 // 40m offset per car keeps the two cars from stacking on one road).
-                var anchor = SpawnUtils.FindSafePosition(playerPos, (100f + (c * 40f)), (200f + (c * 40f)));
+                var anchor = SpawnUtils.FindSafePosition(playerPos, 100f + (c * 40f), 200f + (c * 40f));
                 if (anchor == Vector3.Zero)
                     continue;
                 var roadPos = World.GetNextPositionOnStreet(anchor);
@@ -171,11 +176,18 @@ namespace GTAZ.Systems
         // SpawnRequestQueue so a car never half-populates over the queue's 3-grants-a-pass - a
         // half-full car reads as a bug. Returns false if the driver couldn't spawn (the caller
         // deletes the car); a failed passenger just leaves that seat empty. The driver carries
-        // the car reference (npc.Vehicle) like the bikers' bikes.
+        // the car reference (npc.Vehicle) like the bikers' bikes; every member gets the car + seat
+        // on the AI (AttachCrewCar) so the warp-recovery net can put a failed-warp member back in.
         private bool SpawnCrewForCar(Vehicle car, Vector3 origin)
         {
             foreach (int seat in _crewSeats)
             {
+                // 2-door cars have no rear seats: never try to warp crew into a seat the car
+                // doesn't have (the "failed initial vehicle warp" log wall + stranded back-seat
+                // crew, lesson 46). PassengerCapacity excludes the driver (-1 always valid).
+                if (seat >= 0 && seat >= car.PassengerCapacity)
+                    continue;
+
                 var outcome = budget.TryRequestAndSpawn(PedCategory.FactionNpc, PedPriority.Active,
                     origin, () =>
                     {
@@ -194,10 +206,57 @@ namespace GTAZ.Systems
 
                 var ped = slot.Ped;
                 var weapon = ped.MakeFactionLike(families);
+                // Drive-by capable weapons only (pistols/SMGs) - rifles/shotguns can't shoot
+                // from a car. The faction pool can roll an AssaultRifle, and a rifle-armed crew
+                // member sits in the car unable to fire even with the drive-by task running
+                // (the "sometimes they shoot and sometimes they don't" report - pistol/SMG rolls
+                // worked, rifle rolls didn't). Give a guaranteed drive-by weapon alongside the
+                // random one and use IT as the vehicle weapon; the random weapon stays selected
+                // on-foot for the stand-off fight.
+                var driveByWeapon = IsDriveByCapable(weapon) ? weapon : WeaponHash.CombatPistol;
+                if (driveByWeapon != weapon)
+                    ped.Weapons.Give(driveByWeapon, 120, false, false);
+                // A ped seated in a car only uses its "vehicle weapon" slot when aiming/shooting
+                // from the window - the on-foot selection (Weapons.Select inside MakeFactionLike)
+                // doesn't carry into the car. Without this the crew sits in the car unarmed and
+                // does the unarmed-in-vehicle "flip the player off" reaction when the player aims
+                // at them, and TASK_VEHICLE_SHOOT_AT_PED has nothing to fire (lesson 48).
+                Function.Call(Hash.SET_CURRENT_PED_VEHICLE_WEAPON, ped, driveByWeapon);
+
+                // Crew peds run with BlockPermanentEvents so the engine's ambient AI can't hijack
+                // a passenger into leaving the car or wandering off while the crew cruises (the
+                // "one group got out before the player even saw them" report). MakeFactionLike is
+                // shared by every faction and some paths rely on engine interrupts, so this is set
+                // only for the scripted car-crew right here (lesson 41).
+                ped.BlockPermanentEvents = true;
+                // CA_DISABLE_TARGET_CHANGES_DURING_VEHICLE_PURSUIT (59) is a DRIVER pursuit
+                // attribute - it keeps the driver locked on the player instead of retargeting onto
+                // a zombie mid-chase. Passengers must NOT get it: applied to them it can suppress
+                // their drive-by focus on the player while the car is in pursuit (lesson 45/48).
+                // CA_DISABLE_SECONDARY_TARGET (25, set in MakeFactionLike) already blocks drive-by
+                // secondary targets for everyone, and BlockPermanentEvents means the crew never
+                // returns fire at zombies on its own.
+                if (seat == -1)
+                    Function.Call(Hash.SET_PED_COMBAT_ATTRIBUTES, ped, 59, true);
+
                 var npc = new FactionNPC(ped, families, origin, FactionRole.Crew, null, slot, weapon);
+                npc.AttachCrewCar(car, seat);
                 if (seat == -1)
                     npc.Vehicle = car;
-                Function.Call(Hash.TASK_WARP_PED_INTO_VEHICLE, ped, car, seat);
+
+                // TASK_WARP_PED_INTO_VEHICLE fails while the car model is still streaming in (the
+                // "wasn't in a car" report + the log wall of failed initial warps). Only attempt
+                // the warp once the model is actually loaded - otherwise skip it and let the AI's
+                // re-warp net (TryReWarpCrew, every ~1.2s up to 10 attempts during cruise) seat the
+                // member as soon as streaming finishes (lessons 42/49). Verify after a warp attempt;
+                // a genuine miss is still recovered by the net.
+                if (car.Model.IsLoaded)
+                {
+                    Function.Call(Hash.TASK_WARP_PED_INTO_VEHICLE, ped, car, seat);
+                    if (!ped.IsInVehicle(car) && !ped.IsInVehicle())
+                        Logger.Warn($"Crew member (seat {seat}) failed initial vehicle warp - re-warp net will retry");
+                }
+
                 addActivePed(npc);
             }
             return true;
@@ -302,6 +361,18 @@ namespace GTAZ.Systems
                     return candidate;
             }
             return candidates[0];
+        }
+
+        // Which weapons a ped can actually fire from a car window. Only pistols and SMGs drive-by;
+        // rifles/shotguns/launchers can't shoot while seated in a vehicle, so a crew member whose
+        // random roll landed on one sits in the car unable to fire no matter what task it has.
+        private static bool IsDriveByCapable(WeaponHash weapon)
+        {
+            return weapon is WeaponHash.Pistol
+                or WeaponHash.CombatPistol
+                or WeaponHash.MicroSMG
+                or WeaponHash.AssaultSMG
+                or WeaponHash.SMG;
         }
     }
 }

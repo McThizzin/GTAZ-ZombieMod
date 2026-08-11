@@ -74,6 +74,9 @@ namespace GTAZ.AI
         private int _waterRecoveryCooldown;
         private Blip _blip;
         private int _wanderReissueTimer;
+        // Consecutive behavior ticks the zombie spent standing still while Chasing (follow task
+        // cleared by the engine). See the Chasing branch - the stuck-speed fallback (lesson 38).
+        private int _chaseStuckTicks;
 
         protected ZombieAI(Ped ped, Vector3 spawnOrigin)
         {
@@ -237,10 +240,12 @@ namespace GTAZ.AI
                         // TASK_WANDER_IN_AREA self-sustains while it runs, but the engine can
                         // clear a zombie's wander task (physics pushes, blocked events, task-slot
                         // reuse), leaving the ped standing with State stuck in Wandering - the
-                        // "lots of ambient zombies just stand idle" report. Re-issue on a 2s
+                        // "lots of ambient zombies just stand idle" report. Re-issue on a ~2s
                         // cadence; a wander re-issue just picks a new random point and does not
                         // cause the restart-stutter of re-issuing every tick (lesson 5).
-                        _wanderReissueTimer = 120;
+                        // _wanderReissueTimer counts behavior ticks (one per _updateInterval
+                        // frames), so 120/_updateInterval ≈ 2s at 60fps for every zombie type.
+                        _wanderReissueTimer = 120 / _updateInterval;
                         Function.Call(Hash.TASK_WANDER_IN_AREA, Ped, _spawnOrigin.X, _spawnOrigin.Y, _spawnOrigin.Z, WanderRadius, 0f, 0f);
                     }
                     break;
@@ -288,6 +293,26 @@ namespace GTAZ.AI
                             // task) and omitted persistFollowing entirely.
                             Function.Call(Hash.TASK_FOLLOW_TO_OFFSET_OF_ENTITY, Ped, Target, 0f, 0f, 0f, 1.0f, -1, AttackRange, true);
                             _followTaskTarget = Target;
+                            _chaseStuckTicks = 0;
+                        }
+                        // The follow task self-sustains while running, but the engine can clear
+                        // it at any time (blocked events, task-slot reuse, being bumped by the
+                        // cars during a crew stand-off dismount) - and unlike Wandering, the
+                        // Chasing branch only re-issued on state-entry/target-change, so a cleared
+                        // follow task left the zombie standing frozen in Chasing while the
+                        // stationary player never changed as a target: the "ambient zombies go
+                        // idle during the stand-off" report (lesson 38 stuck-speed fallback).
+                        if (Ped.Speed < 0.5f)
+                        {
+                            if (++_chaseStuckTicks > 30)
+                            {
+                                _chaseStuckTicks = 0;
+                                Function.Call(Hash.TASK_FOLLOW_TO_OFFSET_OF_ENTITY, Ped, Target, 0f, 0f, 0f, 1.0f, -1, AttackRange, true);
+                            }
+                        }
+                        else
+                        {
+                            _chaseStuckTicks = 0;
                         }
                         Function.Call(Hash.SET_PED_MOVE_RATE_OVERRIDE, Ped, MoveSpeed);
                     }

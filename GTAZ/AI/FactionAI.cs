@@ -1,3 +1,4 @@
+using System;
 using GTA;
 using GTA.Math;
 using GTA.Native;
@@ -16,8 +17,13 @@ namespace GTAZ.AI
     // group AI follow the player, everyone else wanders their Origin.
     // Tasks are only (re)issued on a mode or target change - same lesson as ZombieAI/SurvivorAI:
     // reissuing every tick restarts the task from scratch and peds stutter.
+    // OnCrewStandOff fires when this crew member leaves its car for good (the stand-off dismount
+    // or the driver-dead exit). FactionNPC.AttachCrewCar wires it to ReleaseVehicle so the gang
+    // car is handed back to the game (parked + grab-able) instead of vanishing when the driver
+    // bails (lesson 43).
     public class FactionAI(Ped ped, FactionDef faction, Vector3 origin, FactionRole role, bool territoryBound = false)
     {
+        public Action OnCrewStandOff { get; set; }
         public Ped Ped { get; } = ped;
         public FactionDef Faction { get; } = faction;
         public Vector3 Origin { get; } = origin;
@@ -48,18 +54,61 @@ namespace GTAZ.AI
         // The Families car-crew chase (FactionRole.Crew). Crew cruises until it spots the player
         // (CrewSpotRange + LOS), then CHASES them in the cars - the player is their only focus and
         // ambient zombies never distract them. Passengers drive-by from the car; the crew only
-        // dismounts to fight when the player is on foot and the cars catch up (CrewDismountRange).
-        // Outrunning them past CrewGiveUpDistance for a few seconds ends the chase: the cars drive
-        // off and the normal FactionDespawnDistance cleanup fades the crew out.
+        // bails out to fight on foot when the player stands their ground near the cars (stand-off
+        // gate, see the constants below) or the car stalls (driver dead). Outrunning them past
+        // CrewGiveUpDistance for a few seconds ends the chase: the cars drive off and the normal
+        // FactionDespawnDistance cleanup fades the crew out.
         private const float CrewSpotRange = 120f;
         private const float CrewGiveUpDistance = 300f;
         private const int CrewGiveUpTicks = 240;
         private const float CrewDismountRange = 15f;
         private const float CrewDriveByRange = 40f;
+        // Stand-off gate: the crew only bails out of the cars for a genuine on-foot fight. The
+        // player must be on foot, moving slower than a jog (not actively fleeing), and standing
+        // their ground within CrewDismountRange for ~2s (CrewStandOffTicks crew updates at the
+        // 6-frame cadence). Until then the cars keep harrying + drive-bying an on-foot player. The
+        // old "on foot within 15m" gate tripped the instant a car reached an on-foot player, so the
+        // crew piled out before the chase/drive-by phase happened at all (lesson 44).
+        private const float CrewStandOffMaxPlayerSpeed = 4f;
+        private const int CrewStandOffTicks = 20;
+        // On-foot combat re-point: TASK_COMBAT_PED lets the native AI retarget onto whoever engages
+        // the ped, and zombies share mutual Hate with the crew, so a dismounted crew member can
+        // drift onto the nearest zombie mid-fight. Re-issue the task against the player on a ~5s
+        // cadence (CrewCombatReissueUpdates crew updates) so focus always comes back to the player.
+        // Deliberately shorter than the 300-tick chase-task reissue - a pulled-off fighter needs a
+        // snappier re-lock than a driving task (lesson 45).
+        private const int CrewCombatReissueUpdates = 50;
+        // Warp-recovery net cadence + attempt cap (crew updates, 6 frames each): a member whose
+        // initial TASK_WARP_PED_INTO_VEHICLE failed gets re-warped into the car during cruise
+        // (lesson 42).
+        private const int CrewWarpRetryUpdates = 12;
+        private const int CrewWarpAttempts = 10;
 
         private bool _crewEngaged;
         private int _crewLostTicks;
         private int _crewTaskReissueTick;
+        // The crew's gang car + this member's seat, set by the spawner for FactionRole.Crew
+        // (FactionNPC.AttachCrewCar) so the warp-recovery net knows where to put a failed-warp
+        // member back. Only the driver additionally owns the car (FactionNPC.Vehicle) - that's the
+        // lifecycle handle, released on dismount/death (lessons 42/43).
+        public Vehicle CrewVehicle { get; set; }
+        public int CrewSeat { get; set; } = -2;
+        private int _crewWarpRetryTicks;
+        private int _crewWarpAttempts = CrewWarpAttempts;
+        // True once this crew member has left its car for good (stand-off dismount or driver-dead
+        // exit). Blocks the warp-recovery net from re-mounting a dismounted fighter - there is no
+        // re-mount choreography, same rule as The Lost riders.
+        private bool _crewDismounted;
+        // Set when the stand-off leave-vehicle task is issued and cleared the moment the ped is
+        // actually out of the car. Two jobs: (1) stop UpdateCrew from re-issuing TASK_LEAVE_VEHICLE
+        // every 6-frame pass (which restarts the exit animation), and (2) force an immediate
+        // TASK_COMBAT_PED on the first on-foot pass instead of waiting for the ~5s re-point
+        // cadence (lesson 47 - the "they stand idle for a couple seconds after getting out" report).
+        private bool _crewExitPending;
+        // Consecutive crew updates where the player stood their ground near the car (stand-off gate).
+        private int _crewStandOffTicks;
+        // On-foot combat re-point cadence counter.
+        private int _crewCombatReissueTicks;
 
         private enum Mode { None, Combat, Guard, Follow, Wander, VehicleChase, CrewCruise, CrewPursuit, CrewDriveBy }
         private Mode _mode = Mode.None;
@@ -227,9 +276,11 @@ namespace GTAZ.AI
         //
         // States: CrewCruise (unspotted, driving the area) -> CrewPursuit (driver chases) /
         // CrewDriveBy (passengers shoot from the car) -> dismount to on-foot Combat when the
-        // player is on foot and the cars catch up, or the car stalls (driver dead). The pursuit
-        // only ends when the player outruns the crew (CrewGiveUpDistance for a sustained stretch)
-        // - then the cars drive off and the distance-despawn fades them out.
+        // player stands their ground near the cars for a couple of seconds, or the car stalls
+        // (driver dead). The pursuit only ends when the player outruns the crew
+        // (CrewGiveUpDistance for a sustained stretch) - then the cars drive off and the
+        // distance-despawn fades them out. Crew peds run with BlockPermanentEvents (set in
+        // SpawnCrewForCar) so the engine's ambient AI can't hijack a passenger out of the car.
         private void UpdateCrew()
         {
             var player = Game.Player.Character;
@@ -255,6 +306,12 @@ namespace GTAZ.AI
                 if (!_crewEngaged)
                 {
                     IssueCrewCruise();
+                    // Crew spawn safety net: the initial TASK_WARP_PED_INTO_VEHICLE (issued by the
+                    // spawner) can fail while the car/ped stream in, stranding a member next to the
+                    // car - the "one group wasn't in a car" report. Re-warp on a slow cadence while
+                    // cruising (issued AFTER the cruise task so the warp task is the last one set);
+                    // never after the crew has engaged/dismounted (lesson 42).
+                    TryReWarpCrew();
                     return;
                 }
             }
@@ -286,12 +343,27 @@ namespace GTAZ.AI
             if (inVehicle)
             {
                 bool playerInVehicle = player.IsInVehicle();
-                bool driverDead = Ped.CurrentVehicle.Driver?.IsDead != false;
-                bool nearOnFoot = !playerInVehicle && dist <= CrewDismountRange;
+                bool driverDead = Ped.CurrentVehicle.Driver?.IsDead is not false;
 
-                // The car is stalled (driver dead) or the player is on foot and the cars have
-                // caught up: pile out and fight on foot (the "stand off" resolution).
-                if (driverDead || nearOnFoot)
+                // Stand-off gate: pile out only for a genuine on-foot fight. The crew keeps
+                // harrying/drive-bying a moving or distant player, and bails once the player has
+                // stood their ground near the car for a couple of seconds (lesson 44).
+                bool standOff = !playerInVehicle
+                    && player.Speed < CrewStandOffMaxPlayerSpeed
+                    && dist <= CrewDismountRange;
+                if (standOff)
+                {
+                    if (_crewStandOffTicks < CrewStandOffTicks)
+                        _crewStandOffTicks++;
+                }
+                else
+                {
+                    _crewStandOffTicks = 0;
+                }
+
+                // The car is stalled (driver dead) or the player has stood their ground near the
+                // cars: pile out and fight on foot (the "stand off" resolution).
+                if (driverDead || _crewStandOffTicks >= CrewStandOffTicks)
                 {
                     DismountAndFight(player);
                     return;
@@ -300,6 +372,9 @@ namespace GTAZ.AI
                 if (IsCrewDriver())
                 {
                     // Driver: keep the car on the player across the whole pursuit.
+                    // If a leave task was pending (player ran away mid-exit), it's abandoned -
+                    // the crew is driving again, so a future stand-off re-issues the exit.
+                    _crewExitPending = false;
                     if (_mode != Mode.CrewPursuit || _taskTarget != player)
                     {
                         _mode = Mode.CrewPursuit;
@@ -319,6 +394,7 @@ namespace GTAZ.AI
                 else
                 {
                     // Passenger: lean out and shoot the player from the car.
+                    _crewExitPending = false;
                     if (_mode != Mode.CrewDriveBy || _taskTarget != player)
                     {
                         _mode = Mode.CrewDriveBy;
@@ -346,18 +422,81 @@ namespace GTAZ.AI
         {
             if (Ped.IsInVehicle())
             {
-                Function.Call(Hash.TASK_LEAVE_VEHICLE, Ped, Ped.CurrentVehicle, 0);
+                // The crew is bailing out of the car for good (stand-off / driver dead): hand the
+                // car back to the game (release, not delete) so it stays parked for the player to
+                // grab and the engine reclaims it later - The Lost bike pattern, so the car never
+                // vanishes mid-scene. Only the driver holds FactionNPC.Vehicle, so only the
+                // driver's release callback does anything (lesson 43).
+                _crewDismounted = true;
+                OnCrewStandOff?.Invoke();
+                // Issue the exit task once. Re-issuing TASK_LEAVE_VEHICLE on every 6-frame pass
+                // restarts the exit animation, so the crew member keeps climbing out and never
+                // completes it (lesson 47).
+                if (!_crewExitPending)
+                {
+                    _crewExitPending = true;
+                    Function.Call(Hash.TASK_LEAVE_VEHICLE, Ped, Ped.CurrentVehicle, 0);
+                }
                 _mode = Mode.Combat;
                 _taskTarget = player;
                 return;
             }
 
+            // Just got out of the car (or a member that never mounted): start fighting NOW. The
+            // ~5s cadence below is for re-pointing mid-fight, not for the initial engagement -
+            // waiting for it is exactly the "stand idle for a couple seconds after getting out"
+            // report (lesson 47). On the first on-foot pass the exit is complete, so the combat
+            // task is safe to issue (it can't cancel the exit anymore).
+            if (_crewExitPending)
+            {
+                _crewExitPending = false;
+                _crewCombatReissueTicks = 0;
+                _mode = Mode.Combat;
+                _taskTarget = player;
+                Function.Call(Hash.TASK_COMBAT_PED, Ped, player, 0, 16);
+                return;
+            }
+
+            // On-foot combat vs the player. TASK_COMBAT_PED lets the native AI retarget onto
+            // whoever engages the ped, and zombies share mutual Hate with the crew, so a crew
+            // member can drift onto the nearest zombie mid-fight (the "most of them attacked
+            // zombies instead of the player" report). Re-point the task at the player on a slow
+            // cadence so focus always comes back - never every tick, that stutters the ped
+            // (lessons 37/38/45).
             if (_mode != Mode.Combat || _taskTarget != player)
             {
                 _mode = Mode.Combat;
                 _taskTarget = player;
                 Function.Call(Hash.TASK_COMBAT_PED, Ped, player, 0, 16);
             }
+            else if (_crewCombatReissueTicks >= CrewCombatReissueUpdates)
+            {
+                _crewCombatReissueTicks = 0;
+                Function.Call(Hash.TASK_COMBAT_PED, Ped, player, 0, 16);
+            }
+            else
+            {
+                _crewCombatReissueTicks++;
+            }
+        }
+
+        // Re-warps a crew member who never made it into the car at spawn (the initial
+        // TASK_WARP_PED_INTO_VEHICLE can fail while the car/ped stream in). Runs only while the
+        // crew is still cruising (never after engagement or a stand-off) and stops once the ped is
+        // seated or the attempt cap is exhausted - a stranded member that can't be fixed just
+        // fights on foot (lesson 42).
+        private void TryReWarpCrew()
+        {
+            if (_crewDismounted || _crewWarpAttempts <= 0)
+                return;
+            bool inVehicle = Ped.IsInVehicle() && Ped.CurrentVehicle?.Exists() is true;
+            if (inVehicle || CrewVehicle?.Exists() is not true)
+                return;
+            if (_crewWarpRetryTicks++ < CrewWarpRetryUpdates)
+                return;
+            _crewWarpRetryTicks = 0;
+            _crewWarpAttempts--;
+            Function.Call(Hash.TASK_WARP_PED_INTO_VEHICLE, Ped, CrewVehicle, CrewSeat);
         }
 
         private bool IsCrewDriver()
@@ -367,23 +506,31 @@ namespace GTAZ.AI
             return Ped.CurrentVehicle.Driver == Ped;
         }
 
-        // Passenger drive-by: TASK_DRIVE_BY aims and fires at the player from the car window.
-        // The firing pattern (0x9C00E9AF) is the mission drive-by burst. Accuracy 60 matches the
-        // survivor shooters so the drive-by is threatening without being a sniper.
+        // Passenger drive-by: TASK_VEHICLE_SHOOT_AT_PED makes the passenger lean out and keep
+        // shooting at the player while they're in range, re-aiming on its own - the reliable
+        // in-vehicle fire primitive. (TASK_DRIVE_BY was the original choice but is notoriously
+        // dead: its own native doc says "doesn't seem to do anything", so passengers never fired
+        // during the chase - lesson 48.) The 300-update reissue below is just a cleared-task
+        // safety net.
         private void IssueDriveBy(Ped target)
         {
             _crewTaskReissueTick = 0;
-            var targetPos = target.Position;
-            Function.Call(Hash.TASK_DRIVE_BY, Ped, target, target.CurrentVehicle,
-                targetPos.X, targetPos.Y, targetPos.Z, CrewDriveByRange, 60, false, unchecked((int)0x9C00E9AF));
+            // p2 is the shoot range (the drive-by family only fires once the target is within it;
+            // the old 0f meant never in range - lesson 48). CrewDriveByRange matches the pursuit
+            // engage distance so the passenger opens up as soon as the chase is on.
+            Function.Call(Hash.TASK_VEHICLE_SHOOT_AT_PED, Ped, target, CrewDriveByRange);
         }
 
         // The chase/drive-by tasks are self-sustaining but the engine can clear them (blocked
-        // events, physics, task-slot reuse). Re-issue on a slow cadence so a cleared task recovers
-        // without the brake-stutter of re-issuing every update (lessons 37/38).
+        // events, physics, task-slot reuse). Re-issue on a cadence so a cleared task recovers.
+        // The pursuit reissue stays slow (300 updates ~30s) - re-issuing TASK_VEHICLE_CHASE too
+        // often makes the driver brake-stutter. The drive-by is a fire task (like the on-foot
+        // combat re-point) so it recovers much faster (~25 updates ~2.5s); a passenger with a
+        // cleared shoot task is doing nothing meanwhile (lessons 37/38/45/48).
         private void ReissueCrewTask()
         {
-            if (_crewTaskReissueTick < 300)
+            int cadence = _mode == Mode.CrewDriveBy ? 25 : 300;
+            if (_crewTaskReissueTick < cadence)
             {
                 _crewTaskReissueTick++;
                 return;
@@ -444,6 +591,10 @@ namespace GTAZ.AI
             _crewLostTicks = 0;
             _crewTaskReissueTick = 0;
             _taskTarget = null;
+            // Any transition back to cruise abandons a pending exit (give-up drive-away can fire
+            // while a member is mid-climb) - a stale flag would otherwise skip the exit task on a
+            // later re-engage and strand the member in the car (lesson 47).
+            _crewExitPending = false;
 
             if (driveAway && Ped.IsInVehicle() && Ped.CurrentVehicle?.Exists() is true && IsCrewDriver())
             {

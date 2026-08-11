@@ -455,6 +455,171 @@ invincibility/proof.
 
 ---
 
+## Scripted vehicle crews (The Families car encounter)
+
+### 41. Idle in-vehicle passengers get engine-hijacked — scripted crews need BlockPermanentEvents
+**Symptom (post-v1 playtest):** one Families car "wasn't in a car" / its crew "got out before the
+player even saw them"; the car then despawned.
+**Root cause:** `IssueCrewCruise` gives passengers **no scripted task** while the car drives (the
+driver's task moves it), and `MakeFactionLike` never sets `BlockPermanentEvents` (SHVDN3 default
+false) — so the engine's ambient AI decides an idle passenger should get out, wander off, or take a
+scenario task.
+**Fix:** set `BlockPermanentEvents = true` on the crew peds in `SpawnCrewForCar` only — not in the
+shared `MakeFactionLike`, which other faction paths rely on being interruptible.
+**Lesson:** a ped that's supposed to *stay put in a vehicle doing nothing* while a scripted task
+drives it is an idle ped in the engine's eyes — the ambient AI will pull it out unless
+`BlockPermanentEvents` is set. Scripted tasks (`TASK_VEHICLE_DRIVE_WANDER`, `TASK_DRIVE_BY`,
+`TASK_LEAVE_VEHICLE`) still work on a `BlockPermanentEvents` ped; it just can't be hijacked.
+
+### 42. TASK_WARP_PED_INTO_VEHICLE can fail at spawn — verify, and re-warp on a later tick
+**Symptom (post-v1 playtest):** a crew member "wasn't in a car" — standing next to it at the spawn.
+**Root cause:** the warp was issued the same frame the car/peds were created; if the vehicle model
+isn't fully streamed in, `TASK_WARP_PED_INTO_VEHICLE` silently fails. The spawner never verified
+`Ped.IsInVehicle()` and had no recovery path.
+**Fix:** verify `ped.IsInVehicle(car)` right after the warp (log a warning if not), and add an AI
+re-warp net (`TryReWarpCrew`) that re-issues the warp on a slow cadence with an attempt cap while the
+crew is still cruising — issued *after* the cruise task so the warp task is the last one set, and
+never after the crew has engaged/dismounted (no re-mount after a stand-off).
+**Lesson:** "warp into vehicle right after spawning it" is a race against streaming — treat it as
+best-effort and always have a later-tick recovery path, or a spawned crew silently ends up on foot.
+
+### 43. An owned vehicle vanishes when its owner is cleaned — release on dismount, and make deletion occupant-aware
+**Symptom (post-v1 playtest):** the crew's car despawned mid-scene even while the crew was still
+around it.
+**Root cause:** the car's lifetime was tied to the **driver's** `FactionNPC` only — driver death
+`ReleaseVehicle` (engine cleaner reclaims it) or driver evict/despawn `Cleanup → DeleteVehicle`
+(deletes it outright) removed the car regardless of who was still in/around it.
+**Fix (The Lost bike pattern, extended):** when the crew dismounts into the stand-off, the driver's
+AI fires a release callback (`OnCrewStandOff` → `ReleaseVehicle`) so the car stays parked and
+grab-able. `DeleteVehicle` became **occupant-aware**: a car with other living occupants aboard is
+released to the game (not deleted) on script despawn — which also protects a car the player has
+jacked mid-chase — while an empty car (give-up drive-off, riderless bike) is still deleted so no
+vehicle piles build up.
+**Lesson:** a vehicle whose lifetime is bound to one ped will vanish when that ped dies *or is
+cleaned*, even if the rest of the crew is in it. Bind ownership to the crew's dismount moment
+(release) and make script-driven deletion check the occupant list.
+
+### 44. Range-only dismount gates are too eager — require a sustained stand-off
+**Symptom (post-v1 playtest):** the crew "pulled up and got out immediately" — no chase/drive-by
+phase.
+**Root cause:** the dismount gate was `!playerInVehicle && dist <= CrewDismountRange` (15m) — any car
+reaching an on-foot player satisfied it instantly.
+**Fix:** a real stand-off is required — player on foot, `player.Speed` under a jog threshold (not
+actively fleeing), and within `CrewDismountRange` for ~2s of consecutive crew updates. Player-in-a-
+vehicle stays pure chase; a moving on-foot player gets drive-by passes until they stop or outrun the
+crew.
+**Lesson:** an "in range AND on foot" gate triggers the moment the actors meet — which is exactly when
+you *don't* want the dismount yet. If a phase is supposed to have a duration (harass, then bail),
+gate the transition on a *sustained* condition (time + stance), not just geometry.
+
+### 45. TASK_COMBAT_PED retargets onto whoever engages the ped — re-point the intended target on a cadence
+**Symptom (post-v1 playtest):** after the crew dismounted, "most of them attacked zombies instead of
+the player."
+**Root cause:** the "player is the crew's only focus" rule lived only in the scripted state machine
+(the crew branch never scans for zombies); at the *native* level `TASK_COMBAT_PED(Ped, player)` lets
+the combat AI retarget onto whichever enemy engages the ped — and zombies share mutual Hate with the
+crew, so a swarm pulls them off the player.
+**Fix:** `BlockPermanentEvents` stops the crew from returning fire at zombies on its own, drivers get
+`CA_DISABLE_TARGET_CHANGES_DURING_VEHICLE_PURSUIT` (59) for the chase, and on-foot combat
+re-issues `TASK_COMBAT_PED(Ped, player, 0, 16)` on a ~5s cadence so focus snaps back to the player
+(deliberately shorter than the 300-update chase-task reissue — a pulled-off fighter needs a snappier
+re-lock). An Altruist-style one-way zombie truce was considered and **rejected** (user decision).
+**Lesson:** a "focus only target X" guarantee is not enforced by `TASK_COMBAT_PED` — the native AI
+treats the given ped as the *initial* primary target, then re-evaluates threats. If you need a hard
+focus, either remove the distractors from the threat list (relationships — but that's a global change
+per group) or re-assert the task against X on a cadence.
+
+### 46. 2-door cars have no rear seats — a fixed seat list warps crew into seats that don't exist
+**Symptom (post-v1 playtest):** a wall of `Crew member (seat 1/2) failed initial vehicle warp` log
+lines and stranded crew standing next to their cars.
+**Root cause:** the crew seat list is `[-1, 0, 1, 2]` (driver + 3 passengers) but two of the three
+pooled gang cars (faction3, voodoo2) were **2-door** cars with no rear seats — every warp to seats 1/2
+failed at spawn, and the re-warp net (lesson 42) just kept failing.
+**Fix:** the pool is now all 4-doors — impaler5 (Impaler SZ), superd (Super Diamond), cavalcade3
+(Cavalcade XL) — and `SpawnCrewForCar` additionally skips any seat past `Vehicle.PassengerCapacity`
+so a future 2-door can't silently re-break it.
+**Lesson:** a hardcoded multi-seat spawn list silently half-fails on any vehicle that doesn't have
+every listed seat. When seats must be filled, gate them against the vehicle's actual capacity or pick
+vehicles with a known seat count.
+
+### 47. Re-issued exit tasks restart the exit animation — and combat waits for the re-point cadence
+**Symptom (post-v1 playtest):** after the stand-off the crew stood idle for a couple of seconds on
+the pavement before doing anything.
+**Root cause (two stacked bugs):** (a) `TASK_LEAVE_VEHICLE` was re-issued every 6-frame crew pass
+while the member was still in the car, restarting the exit animation so it never completed cleanly;
+(b) `_mode` was set to `Combat` *during* the exit, so once on foot the combat branch only fired on
+the ~5s re-point cadence (lesson 45) instead of immediately.
+**Fix:** an `_crewExitPending` flag issues `TASK_LEAVE_VEHICLE` exactly once, and the first on-foot
+pass clears the flag and issues `TASK_COMBAT_PED` immediately (the cadence stays for mid-fight
+re-pointing). The flag is also cleared when the crew resumes driving mid-exit (player ran off) and on
+disengage, so a stale flag can't block a later stand-off's exit.
+**Lesson:** an exit task issued in a loop restarts the transition it's supposed to complete — gate it
+on a "currently exiting" flag. And when a task is delayed for a reason (here: don't cancel the exit),
+the hand-off must be *explicit* — set a flag so the next state change issues the follow-up instantly,
+not on the next scheduled cadence.
+
+### 48. TASK_DRIVE_BY doesn't actually shoot — use TASK_VEHICLE_SHOOT_AT_PED (and arm the vehicle-weapon slot)
+**Symptom (post-v1 playtest):** the chase now looks right, but passengers never fire from the car
+during the pursuit — even after switching to `TASK_VEHICLE_SHOOT_AT_PED`, the crew sat unarmed and
+flipped the player off when aimed at from inside the car.
+**Root cause (three stacked bugs):** (a) the original passenger task was `TASK_DRIVE_BY`, and the
+project's own native reference (`NATIVES/TASK/TaskDriveBy.md`) documents it as *"Needs working
+example. Doesn't seem to do anything."* (b) `TASK_VEHICLE_SHOOT_AT_PED`'s p2 is a **shoot range** —
+the drive-by family only fires once the target is inside it, so passing `0f` meant never in range.
+(c) `MakeFactionLike` gives + selects the on-foot weapon, but a ped seated in a car only uses its
+**vehicle-weapon slot** (`SET_CURRENT_PED_VEHICLE_WEAPON`) when aiming/shooting from the window; with
+no vehicle weapon set the passenger is unarmed in the car — hence the flip-off gesture (the
+unarmed-in-vehicle reaction) and nothing to fire.
+**Fix:** `IssueDriveBy` calls `TASK_VEHICLE_SHOOT_AT_PED(ped, player, CrewDriveByRange)`, and
+`SpawnCrewForCar` calls `SET_CURRENT_PED_VEHICLE_WEAPON(ped, weapon)` after `MakeFactionLike`.
+**Second wave (post-v1 playtest 4):** even with all three above fixed, the crew still shot
+*sometimes but not always* — a rifle-rolled member (the Families pool includes AssaultRifle) can't
+fire from a car no matter what slot it's in. Fix: `SpawnCrewForCar` now gives each crew member a
+guaranteed drive-by-capable weapon (the rolled weapon if it's a pistol/SMG, else a CombatPistol) and
+sets THAT as the vehicle weapon, while the random weapon stays selected on-foot for the stand-off
+fight. Peds can absolutely hold + switch between two weapons.
+**Lesson:** check your own native reference before trusting a task — but also check the *whole chain*:
+a task that needs an armed ped is useless if the ped's weapon is on the wrong slot (or isn't
+drive-by-capable at all). The "flip the player off" gesture is a diagnostic: it's the unarmed-in-
+vehicle reaction and means the ped isn't holding anything, not that the task is broken.
+
+### 49. Initial vehicle-warp failures are streaming, not a missing-seat bug — gate the warp on the model
+**Symptom (post-v1 playtest):** the log is full of "Crew member failed initial vehicle warp" even
+though every member ends up seated.
+**Root cause:** `TryFamiliesEncounter` spawns the **car first** (`CreateCrewCar`) and peds **after**
+(`SpawnCrewForCar`), then warps each ped immediately. `World.CreateVehicle` returns a car whose model
+is still streaming in, so `TASK_WARP_PED_INTO_VEHICLE` fails while the model loads — the re-warp net
+(`TryReWarpCrew`) then seats everyone during cruise, which is why the *outcome* is fine. The wall of
+warnings was a guaranteed-failure retry, not a real per-member bug.
+**Fix:** only attempt the initial warp once `car.Model.IsLoaded`; otherwise skip it and let the net
+seat the member as soon as streaming finishes. Genuine (loaded-but-missed) warps are still verified and
+logged.
+**Lesson:** don't log a retryable failure as a warning when it's the expected first attempt on a
+streaming entity. And remember spawn order: car model is requested by the create call but only
+available to warp into after streaming.
+
+### 50. Chasing zombies stand idle when their follow task is cleared — the chase needs a stuck-speed fallback too
+**Symptom (post-v1 playtest):** ambient zombies go idle (stand still) during the Families crew
+stand-off, in the middle of the fight.
+**Root cause:** the Chasing branch only (re)issued `TASK_FOLLOW_TO_OFFSET_OF_ENTITY` on state-entry
+or target-change. During a stand-off the crew dismounts cars around the player, and the resulting
+physics bumps / blocked events / task-slot reuse clear a chasing zombie's follow task — but the
+player (the target) doesn't change, so the task was never re-issued and the zombie froze in
+`Chasing` with nothing running. The wander state already had a reissue cadence for the same class of
+bug (lesson 37), but Chasing didn't. A second latent bug: the wander reissue timer was `120`
+behavior-ticks, and behavior ticks only run every `_updateInterval` frames (4 base / 6 walker / 3
+runner) — so the "2s" cadence was really 6-12 *seconds* of standing before a cleared wander task
+recovered.
+**Fix:** the Chasing branch now uses the same stuck-speed fallback as the faction guards (lesson 38):
+if `Ped.Speed < 0.5f` for ~30 behavior ticks while chasing, re-issue the follow task. The wander
+reissue timer is now `120 / _updateInterval` so it's a true ~2s for every zombie type.
+**Lesson:** every self-sustaining movement task needs a recovery path — wander got one, chase didn't,
+and the gap only showed up when the environment got chaotic (a stand-off) instead of calm. And when a
+timer counts *behavior* ticks (gated by an update interval), calibrate it against that interval, not
+against frames.
+
+---
+
 ## Superseded lessons (record only — subsystem deleted)
 
 ### 8. Player as infection candidate — *superseded*

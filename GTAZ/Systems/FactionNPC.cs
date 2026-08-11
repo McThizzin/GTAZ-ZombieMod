@@ -30,9 +30,13 @@ namespace GTAZ.Systems
         public TerritoryZone HomeZone { get; } = homeZone;
         public PedSlot Slot { get; } = slot;
         public WeaponHash Weapon { get; } = weapon;
-        // Optional bike for The Lost ambient riders (set after creation when the spawn mounted
-        // one). When the rider dies the bike is handed back to the game (ReleaseVehicle) so it
-        // survives as a rideable hexer/daemon; Cleanup (script despawn) still deletes it.
+        // Optional vehicle owned by this ped: The Lost riders' bike and the Families crew DRIVER's
+        // gang car (set after creation). The owner holds it so the vehicle survives their death
+        // (handed back to the game in ReleaseVehicle so it stays parked and grab-able) and is
+        // deleted only when the script deliberately despawns the ped while the vehicle is still in
+        // active use (Cleanup). When the crew dismounts into an on-foot stand-off the driver's AI
+        // fires the stand-off callback, which releases the car the same way (lesson 43). Passengers
+        // hold no Vehicle reference - they ride the driver's car (their CrewVehicle is on the AI).
         public Vehicle Vehicle { get; internal set; }
         // Last known live ped position (updated each tick) so diagnostics can report where a
         // vanished recruit was last seen - Ped can't be queried once the engine has culled it.
@@ -55,6 +59,20 @@ namespace GTAZ.Systems
         {
             Role = role;
             _ai.SetRole(role);
+        }
+
+        // Crew cars (FactionRole.Crew): the spawner tells the AI which gang car + seat this member
+        // belongs to so the warp-recovery net (TryReWarpCrew) can re-warp a member whose initial
+        // TASK_WARP_PED_INTO_VEHICLE failed. Also wires the stand-off release: when this member
+        // leaves its car for good the AI fires ReleaseVehicle, so the DRIVER's car is handed back
+        // to the game (parked + grab-able) instead of vanishing mid-scene - passengers' releases
+        // are no-ops (they hold no Vehicle). Only the DRIVER additionally gets Vehicle set
+        // (ownership/lifecycle); passengers just ride along.
+        public void AttachCrewCar(Vehicle car, int seat)
+        {
+            _ai.CrewVehicle = car;
+            _ai.CrewSeat = seat;
+            _ai.OnCrewStandOff = ReleaseVehicle;
         }
 
         // Recruits are never budget-evicted (their slot is essential and the ped is persistent).
@@ -107,10 +125,11 @@ namespace GTAZ.Systems
                 Ped.Delete();
         }
 
-        // A rider's bike outlives them: drop persistence and tracking so the game's cleaner can
-        // reclaim it later, but the bike stays on the street for the player to grab instead of
-        // vanishing the instant its rider dies. Cleanup (script-driven despawn/eviction) still
-        // deletes the vehicle so evicted peds don't leave riderless bike piles behind.
+        // A rider's bike (or a crew car) outlives its owner: drop persistence and tracking so the
+        // game's cleaner can reclaim it later, but the vehicle stays on the street for the player
+        // to grab instead of vanishing the instant its owner dies. Cleanup (script-driven
+        // despawn/eviction) still deletes the vehicle so evicted peds don't leave riderless
+        // vehicle piles behind.
         private void ReleaseVehicle()
         {
             if (Vehicle?.Exists() is not true)
@@ -124,6 +143,25 @@ namespace GTAZ.Systems
         {
             if (Vehicle?.Exists() is not true)
                 return;
+
+            // Script-driven despawn (distance fade / eviction) of the owning driver while the
+            // vehicle is still in active use. If other living crew are still aboard, hand the
+            // vehicle to the game (release) instead of deleting it out from under them - that was
+            // the "car vanished mid-scene" report. An empty crew car (give-up drive-off with
+            // nobody left inside, or a riderless bike) is deleted outright so no vehicle piles
+            // build up. Occupant-aware also protects a car the PLAYER has jacked mid-chase
+            // (lesson 43).
+            foreach (var occupant in Vehicle.Occupants)
+            {
+                if (occupant != null && occupant != Ped && occupant.Exists() && !occupant.IsDead)
+                {
+                    Vehicle.IsPersistent = false;
+                    Vehicle.MarkAsNoLongerNeeded();
+                    Vehicle = null;
+                    return;
+                }
+            }
+
             Vehicle.Delete();
             Vehicle = null;
         }

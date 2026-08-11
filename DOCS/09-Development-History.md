@@ -130,3 +130,75 @@ capture loop, counter-attacks, recruiting), `FactionAI` + `FactionNPC`, module/m
 ## Post-v1
 Documentation revamp (this `DOCS/` directory). Next: Phase 5 (Polish & Balance) + a refactoring
 plan for the code — see `06-Roadmap.md`.
+
+### Families car-encounter bugfix round (post-v1, Phase 5 polish start)
+The `TryFamiliesEncounter` crew (committed at `fe39ab1`) was playtested and hit five bugs. All
+fixed in one round:
+- **Crew leaving the car / wasn't in a car:** passengers got no scripted cruise task and the engine's
+  ambient AI hijacked them out of the car (SHVDN3 `BlockPermanentEvents` defaults false); the initial
+  `TASK_WARP_PED_INTO_VEHICLE` could also fail while the car streamed in. Crew peds now set
+  `BlockPermanentEvents` in `SpawnCrewForCar` (not `MakeFactionLike` — shared), and the AI re-warps a
+  failed-warp member during cruise (`TryReWarpCrew`, cadence + attempt cap).
+- **Car vanished mid-scene:** the car's lifetime was tied to the driver alone — driver death
+  `ReleaseVehicle` or driver evict `DeleteVehicle` removed it while the crew was still around it. The
+  driver now releases the car on the stand-off dismount (via the AI's `OnCrewStandOff` callback), and
+  `DeleteVehicle` is occupant-aware — a car with living crew aboard is released to the game, not
+  deleted. Cars behave like The Lost bikes: parked + grab-able after a stand-off, engine-reclaimed
+  later, no piles (give-up drive-off cars still clean up).
+- **Pulled up + got out immediately:** the dismount gate (`nearOnFoot`, on-foot + ≤15m) tripped the
+  instant a car reached an on-foot player. Now a real stand-off is required — player on foot, slower
+  than a jog (not fleeing), standing ground within `CrewDismountRange` for ~2s — so an on-foot player
+  gets drive-by passes before the crew bails.
+- **Crew attacked zombies instead of the player:** after dismount, native `TASK_COMBAT_PED`
+  retargeted onto engaging zombies (mutual Hate). On-foot combat is re-pointed at the player on a ~5s
+  cadence; drivers also get `CA_DISABLE_TARGET_CHANGES_DURING_VEHICLE_PURSUIT` (59) and
+  `BlockPermanentEvents` stops in-car return fire at zombies. The Altruist-style one-way zombie truce
+  was **deliberately not** given to The Families (user decision: Altruists untested, one-way bind
+  feels off) — zombies still aggro the crew, focus just keeps snapping back to the player.
+- Driver-killed → passengers exit (`driverDead` → `TASK_LEAVE_VEHICLE`) was already handled; verified
+  as part of this round's playtest checklist.
+
+### Families car-encounter follow-up (post-v1 playtest 2)
+Playtest confirmed the chase feels good. Two remaining issues fixed:
+- **Warp failures + stranded back-seat crew:** the car pool (faction3/voodoo2/cavalcade3) included two
+  **2-door** cars, but the seat list is driver + 3 passengers — warps to seats 1/2 failed every spawn
+  (log wall of `failed initial vehicle warp`). Pool is now all 4-doors (impaler5/superd/cavalcade3,
+  player-requested), and `SpawnCrewForCar` skips any seat past `Vehicle.PassengerCapacity` as a guard.
+  Lesson 46.
+- **Idle on the pavement after dismount:** `TASK_LEAVE_VEHICLE` was re-issued every crew pass
+  (restarting the exit animation) and combat waited for the ~5s re-point cadence. An
+  `_crewExitPending` flag issues the exit once and fires `TASK_COMBAT_PED` the instant the member is
+  on foot. Lesson 47.
+
+### Families car-encounter follow-up (post-v1 playtest 3)
+Playtest confirmed much better success (sometimes two cars, and the crew engages quickly after
+exiting). Two issues fixed + one question answered:
+- **Passengers never shot from the car:** the passenger task was `TASK_DRIVE_BY` — a notoriously dead
+  native (the project's own `TaskDriveBy.md` says "doesn't seem to do anything"). Passengers now use
+  `TASK_VEHICLE_SHOOT_AT_PED` (the reliable lean-out-and-fire primitive), and the drive-by reissue
+  cadence was cut to ~2.5s (fire task recovers fast; the driver chase reissue stays at 300 to avoid
+  brake-stutter). Combat attribute 59 (`CA_DISABLE_TARGET_CHANGES_DURING_VEHICLE_PURSUIT`) is also
+  now driver-only — it was applied to every crew ped including passengers. Lesson 48.
+- **Log wall of "failed initial vehicle warp":** spawn order is car-first-then-peds, and the immediate
+  warp fires while the car model is still streaming — a guaranteed failure on first attempt. The
+  initial warp is now gated on `car.Model.IsLoaded`; otherwise the re-warp net seats the member during
+  cruise. The net was doing the real work all along — the warnings were just a false alarm. Lesson 49.
+
+### Families car-encounter follow-up 2 (post-v1 playtest 4)
+Playtest showed the crew still never fired from the car while the player was driving, and ambient
+zombies went idle during the stand-off. Both fixed:
+- **Crew in the car flipped the player off instead of shooting:** two more stacked causes behind the
+  drive-by. (a) `TASK_VEHICLE_SHOOT_AT_PED`'s p2 is a **shoot range**, not a flag — passing `0f`
+  meant the passenger was never in range. Now passes `CrewDriveByRange`. (b) `MakeFactionLike` arms
+  the **on-foot** slot via `Weapons.Select`, but a ped seated in a car only uses its
+  **vehicle-weapon slot** when aiming/shooting from the window — with no vehicle weapon the passenger
+  is unarmed in the car (the "flip the player off" gesture) and the drive-by has nothing to fire.
+  `SpawnCrewForCar` now calls `SET_CURRENT_PED_VEHICLE_WEAPON(ped, weapon)` right after
+  `MakeFactionLike`. Lesson 48 (expanded).
+- **Ambient zombies standing idle during the stand-off:** the Chasing branch only (re)issued
+  `TASK_FOLLOW_TO_OFFSET_OF_ENTITY` on state-entry/target-change. The engine cleared chasing follow
+  tasks during the chaotic dismount (physics bumps, blocked events), and with the player as an
+  unchanging target the task was never re-issued — the zombie froze in `Chasing`. Chasing now has the
+  same stuck-speed fallback as the faction guards (`Speed < 0.5f` ~30 behavior-ticks → re-issue
+  follow). Also corrected the wander reissue cadence: it was `120` behavior-ticks (6-12s at
+  `_updateInterval` 3-6 frames) where the comment claimed 2s — now `120 / _updateInterval`. Lesson 50.

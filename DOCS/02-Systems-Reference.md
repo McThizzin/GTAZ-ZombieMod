@@ -57,7 +57,10 @@ Territory wave spawns **bypass** the search entirely and use player-mapped point
 - Horde members live in `HordeSystem`'s own list; `CleanupDistantZombies` only touches
   `_activeZombies`.
 - **ZombieAI states:** `Idle → Wandering → Chasing → Attacking → Fleeing`. Wandering uses
-  `TASK_WANDER_IN_AREA` (re-issued on a 2s cadence — the engine can clear self-sustaining tasks).
+  `TASK_WANDER_IN_AREA` (re-issued on a ~2s cadence via `120 / _updateInterval` behavior ticks — the
+  engine can clear self-sustaining tasks). Chasing uses `TASK_FOLLOW_TO_OFFSET_OF_ENTITY` with the
+  same stuck-speed recovery (`Speed < 0.5f` ~30 behavior-ticks → re-issue follow, lesson 50) so a
+  task the engine clears mid-stand-off doesn't freeze the zombie.
   Dead/missing targets are dropped back to Wandering. Tasks are reissued only when the task slot is
   free (`GET_SCRIPT_TASK_STATUS != 1`).
 - **Ladder protection:** config flag 146 (`CPED_CONFIG_FLAG_DisableLadderClimbing`) +
@@ -112,12 +115,34 @@ stable cross-system surface (`HostileTerritoryAt`, `IsPlayerOwnedZone`, `IsInAny
   members and patrols only spawn OUTSIDE any territory radius** — territories are event-driven
   ground. Ambient/patrol spawns land 100–200m out (outside the 60m ambient pursuit range).
 - **The Families car chase:** `TryFamiliesEncounter` spawns 1-2 gang cars full of `FactionRole.Crew`
-  (4-8 GSF members; faction3/voodoo2/cavalcade3). Crew cruises until it spots the player
+  (4-8 GSF members; impaler5/superd/cavalcade3 — 4-doors only, the old faction3/voodoo2 were 2-doors
+  and every rear-seat warp failed, lesson 46). Crew cruises until it spots the player
   (`CrewSpotRange` 120m + LOS), then the driver chases (`TASK_VEHICLE_CHASE`, aggressive ramming)
-  and passengers drive-by (`TASK_DRIVE_BY`). They dismount to fight only when the player is on foot
-  and the cars catch up (`CrewDismountRange` 15m) or the driver is dead. Outrunning them past
-  `CrewGiveUpDistance` (300m) for ~4s makes them give up and drive off, fading via the normal
-  distance-despawn. The player is the crew's only focus — ambient zombies never distract them.
+  and passengers drive-by (`TASK_VEHICLE_SHOOT_AT_PED` — the reliable in-vehicle fire primitive;
+  `TASK_DRIVE_BY` is documented as "doesn't seem to do anything" so passengers never shot, lesson 48).
+  The drive-by's p2 is a **shoot range** (`CrewDriveByRange`) — `0f` meant never in range — and the
+  crew is armed for the car via `SET_CURRENT_PED_VEHICLE_WEAPON` after `MakeFactionLike` (the on-foot
+  weapon doesn't carry into the vehicle slot; an unarmed passenger just flips the player off).
+  Crew peds run with `BlockPermanentEvents` (set in
+  `SpawnCrewForCar`, not `MakeFactionLike` — that's shared) so the engine's ambient AI never hijacks
+  a passenger out of the car mid-cruise; a crew member whose initial `TASK_WARP_PED_INTO_VEHICLE`
+  failed gets re-warped by the AI net (`TryReWarpCrew`) while the crew is still cruising. The initial
+  warp is only attempted once the car model is loaded (otherwise it silently fails on the streaming
+  car and the net seats the member during cruise, lesson 49). They pile
+  out for a genuine on-foot stand-off only — player on foot, moving slower than a jog, and standing
+  their ground within `CrewDismountRange` (15m) for ~2s (otherwise the cars keep harrying/drive-bying
+  a moving player) — or when the driver is dead. The exit task is issued once (an exit-pending flag
+  stops `TASK_LEAVE_VEHICLE` being re-issued every crew pass, which restarted the exit animation, and
+  fires `TASK_COMBAT_PED` the instant the member is on foot — no post-dismount idle, lesson 47). On
+  the stand-off the driver's car is **released** to
+  the game (parked + grab-able, engine reclaims it later, The Lost bike pattern); a car with living
+  crew aboard is also released rather than deleted on cleanup, so it never vanishes mid-scene and no
+  car piles build up. Outrunning them past `CrewGiveUpDistance` (300m) for ~4s makes them give up and
+  drive off, fading via the normal distance-despawn. The player is the crew's only focus — ambient
+  zombies never distract them: the state machine never scans for zombies, and after a stand-off
+  `TASK_COMBAT_PED` is re-pointed at the player on a ~5s cadence so native combat retargeting onto a
+  swarm can't hold them off the player (zombies still attack the crew — mutual Hate — but focus keeps
+  coming back).
 - **`FactionAI` pursuit:** hostile factions chase the player — territory-bound peds (any `HomeZone`)
   up to 300m, ambient patrols 60m, no LOS gate.
 

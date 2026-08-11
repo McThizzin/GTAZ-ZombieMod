@@ -289,7 +289,8 @@ ring, then killed ambient faction peds for 15 minutes with zero defense-quota lo
    any territory), NOT a territory attack — the menu label, `04-Config-Reference.md`, and AGENTS.md
    all described it as "patrols/raiding parties" which read like territory action. The rework
    (`TryBanditPatrol` → `TryFamiliesEncounter`, `FactionRole.Crew`) made it a **gang-car chase**:
-   1-2 cars (faction3/voodoo2/cavalcade3) full of GSF crew spawn outside any territory, cruise
+    1-2 cars (impaler5/superd/cavalcade3, all 4-door — the original faction3/voodoo2 were 2-doors and
+    the rear-seat warps failed, lesson 46) full of GSF crew spawn outside any territory, cruise
    until they spot the player (120m + LOS), then chase them in the cars — the driver runs
    `TASK_VEHICLE_CHASE` (aggressive ramming) while passengers drive-by (`TASK_DRIVE_BY`), and the
    player is the crew's only focus (they never stop for ambient zombies). The crew dismounts to
