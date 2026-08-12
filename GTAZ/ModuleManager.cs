@@ -30,7 +30,7 @@ namespace GTAZ
             World = new();
             Zombies = new();
             Survivors = SurvivorSystem.Instance;
-            Horde = new HordeSystem(Survivors, Zombies);
+            Horde = new HordeSystem(Zombies);
             Factions = FactionSystem.Instance;
             Persistence = PersistenceManager.Instance;
             Menu = MenuManager.Instance;

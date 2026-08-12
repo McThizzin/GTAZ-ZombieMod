@@ -27,7 +27,7 @@ Cross-check against `01-Architecture.md` for how the pieces interact.
 | `Systems/WorldSystem.cs` | Apocalypse mode: clears traffic/cops/scenarios (zombie-safe), per-frame `SET_TIME_SCALE` (the `TimeScale` world setting). |
 | `Systems/ZombieSystem.cs` | Ambient zombie spawns, night runners, per-tick rescore, hostile-ring density cap. |
 | `Systems/HordeSystem.cs` | Wandering hordes + once-per-night siege; own ped list, shared queue. |
-| `Systems/SurvivorSystem.cs` | Transient armed civilians (fight/flee); `SpawnAt` for horde announce; `ConvertNearbyEngineNpcs`; `DetachAmbientSurvivor` for recruiting. |
+| `Systems/SurvivorSystem.cs` | Transient armed civilians (fight/flee); `ConvertNearbyEngineNpcs`; `DetachAmbientSurvivor` for recruiting. |
 | `Systems/FactionSystem.cs` | Faction/territory orchestration (singleton): owns the 5 `FactionDef`s + the active faction-ped list, delegates territory to `TerritorySystem`, spawning to `FactionSpawner`, recruiting to `RecruitManager`. Keeps the stable public surface (`TryRecruitAtCrosshair`, `DismissAllRecruits`, `HostileTerritoryAt`, `IsPlayerOwnedZone`, `IsInAnyTerritory`, `HomeFaction`, `RestoreOwnedTerritories`, `SurrenderCurrentZone`, `ClearAllFactions`) as delegates. See `02-Systems-Reference.md` → Factions. |
 | `Systems/FactionSpawner.cs` | Faction spawn construction: ambient members, The Families' gang-car encounter (`TryFamiliesEncounter`), territory-bound defenders/reinforcements/raiders/guards (all via `SpawnFactionPed` on the shared SpawnRequestQueue) + Lost biker mounting. |
 | `Systems/TerritorySystem.cs` | Territory state machine: the 12 `TerritoryZone`s + blips, hostile-zone takeover (defenders/reinforcement waves/capture), owned-zone timer raids, surrender, save-restore, per-ring queries (`HostileTerritoryAt`/`IsPlayerOwnedZone`/`IsInAnyTerritory`/`IsPlayerInTerritoryContext`). Spawns via the FactionSpawner, reaches peds via callbacks. |
@@ -43,6 +43,7 @@ Cross-check against `01-Architecture.md` for how the pieces interact.
 | `AI/ZombieAI.cs` | Abstract zombie state machine + blips + wander re-issue + horde march mode. |
 | `AI/ZombieTypes/WalkerAI.cs` | Slow melee shambler (0.8 speed, 40m sight). |
 | `AI/ZombieTypes/RunnerAI.cs` | Fast night-only melee (1.8 speed, 60m sight). |
+| `AI/ZombieTypes/HorderAI.cs` | Horde center (g_m_m_zombie_02, 1.3 speed, wide reach); immune while its horde lives. |
 | `AI/Perception.cs` | Static sight/sound/LOS helpers. |
 | `AI/SurvivorAI.cs` | Armed-human behavior (combat/flee/wander). |
 | `AI/FactionAI.cs` | Faction behavior: combat/guard/patrol/follow + stuck-scenario fallback. |

@@ -54,9 +54,12 @@ the menu item and update this table.
 | `HordeNightSize` | 40 | Once-per-night siege size. |
 | `HordeNightChance` | 0.5f | Chance of a night siege each night window. |
 | `HordeSpawnDistanceMin` | 100f | Materialize horde no closer than this. |
-| `HordeSpawnDistanceMax` | 300f | Materialize horde no farther than this. |
+| `HordeSpawnDistanceMax` | 220f | Materialize horde no farther than this (was 300f — playtest 1: hordes spawned a bit too far; closer spawns also shorten the sweep reach). |
 | `HordeDespawnDistance` | 400f | Horde members fade past this distance. |
 | `HordeRunnerChance` | 0.15f | Runner ratio in hordes. |
+| `ShowHordeBlips` | true | Red skull map blip (`BlipSprite.TeamDeathmatch`, ID 378) per active horde, anchored on the Horder/centroid. |
+| `HordeEngageDistance` | 400f | Hordes only surge toward the player while engaged within this radius (§3.4). |
+| `HorderInvulnerableWithHorde` | true | The Horder (horde center) takes no damage while any other member of its horde is alive. |
 
 ## Faction Settings (general)
 

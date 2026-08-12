@@ -130,21 +130,6 @@ namespace GTAZ.Systems
                 SpawnSurvivorAt(pos);
         }
 
-        // Used by HordeSystem so the gunshot announcement position has armed NPCs at it.
-        public void SpawnAt(Vector3 position, int count = 1)
-        {
-            var config = ModConfig.Current;
-            if (!config.EnableSurvivors)
-                return;
-
-            for (int i = 0; i < count; i++)
-            {
-                var pos = SpawnUtils.FindSafePosition(position, 5f, 25f);
-                if (pos != Vector3.Zero)
-                    SpawnSurvivorAt(pos);
-            }
-        }
-
         private void SpawnSurvivorAt(Vector3 pos)
         {
             bool coward = _rng.NextDouble() < ModConfig.Current.SurvivorCowardChance;

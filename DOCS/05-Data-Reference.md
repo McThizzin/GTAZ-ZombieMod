@@ -24,9 +24,15 @@ Horde spawns (`HordeSystem`) reuse these exact pools via `ZombieSystem.WalkerMod
   `g_m_m_zombie_01` (`0xC61B7851`, not in enum)
 
 **Runners (night only unless toggled)**
-- `Zombie01` (`u_m_y_zombie_01`), `Juggalo01AMY`, `g_m_m_zombie_02` (`0x98549CC4`, not in enum),
+- `Zombie01` (`u_m_y_zombie_01`), `Juggalo01AMY`,
   `ig_zombie_dj_01` (`0xBE5F26D7`, not in enum), `g_m_m_zombie_04` (`0x296EBEF2`, not in enum),
   `g_m_m_zombie_05` (`0xFAB86186`, not in enum)
+
+**Horder (horde center — never ambient)**
+- `g_m_m_zombie_02` (`0x98549CC4`, not in SHVDN3 `PedHash` enum; `ZombieSystem.HorderModel`).
+  Removed from the runner pool — HordeSystem spawns exactly one per horde (counts as a `size`
+  member, no extra budget), it's the march/blip reference, and it's immune while its horde lives.
+  `HorderAI` (`GTAZ/AI/ZombieTypes/HorderAI.cs`), speed 1.3, `_updateInterval` 5, wide attack range.
 
 ### Survivors (ambient + outpost guards + recruits)
 Recruits keep whatever survivor/engine model they had when adopted, so the pool below is the

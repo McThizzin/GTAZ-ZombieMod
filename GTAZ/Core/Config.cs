@@ -77,9 +77,15 @@ namespace GTAZ.Core
         public int HordeNightSize { get; set; } = 40;
         public float HordeNightChance { get; set; } = 0.5f;
         public float HordeSpawnDistanceMin { get; set; } = 100f;
-        public float HordeSpawnDistanceMax { get; set; } = 300f;
+        public float HordeSpawnDistanceMax { get; set; } = 220f;
         public float HordeDespawnDistance { get; set; } = 400f;
         public float HordeRunnerChance { get; set; } = 0.15f;
+        // Red skull map blip (BlipSprite.TeamDeathmatch, ID 378) tracking each active horde.
+        public bool ShowHordeBlips { get; set; } = true;
+        // Hordes only surge toward the player while engaged within this radius (§3.4).
+        public float HordeEngageDistance { get; set; } = 400f;
+        // The Horder (horde center) takes no damage while its horde lives (§3.6).
+        public bool HorderInvulnerableWithHorde { get; set; } = true;
 
         // Territory Settings
         public int MaxPlayerZones { get; set; } = 5;

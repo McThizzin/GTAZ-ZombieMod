@@ -88,6 +88,9 @@ namespace GTAZ.UI
         private NativeSliderItem _hordeSpawnMax;
         private NativeSliderItem _hordeDespawn;
         private NativeSliderItem _hordeRunnerChance;
+        private NativeCheckboxItem _showHordeBlips;
+        private NativeSliderItem _hordeEngageDistance;
+        private NativeCheckboxItem _horderInvulnerable;
 
         // Debug
         private NativeItem _statusItem;
@@ -423,6 +426,12 @@ namespace GTAZ.UI
             {
                 Value = (int)(config.HordeRunnerChance * 100f)
             };
+            _showHordeBlips = new NativeCheckboxItem("Show Horde Blips", "Red skull blip tracking each active horde", config.ShowHordeBlips);
+            _hordeEngageDistance = new NativeSliderItem("Horde Engage Distance (m)", "Hordes surge toward the player within this radius", 1000, 50)
+            {
+                Value = (int)config.HordeEngageDistance
+            };
+            _horderInvulnerable = new NativeCheckboxItem("Horder Invulnerable With Horde", "The horde's center takes no damage while its horde lives", config.HorderInvulnerableWithHorde);
 
             _hordeEnabled.CheckboxChanged += (s, a) =>
             {
@@ -438,6 +447,9 @@ namespace GTAZ.UI
             _hordeSpawnMax.ValueChanged += (s, a) => config.HordeSpawnDistanceMax = _hordeSpawnMax.Value;
             _hordeDespawn.ValueChanged += (s, a) => config.HordeDespawnDistance = _hordeDespawn.Value;
             _hordeRunnerChance.ValueChanged += (s, a) => config.HordeRunnerChance = _hordeRunnerChance.Value / 100f;
+            _showHordeBlips.CheckboxChanged += (s, a) => config.ShowHordeBlips = _showHordeBlips.Checked;
+            _hordeEngageDistance.ValueChanged += (s, a) => config.HordeEngageDistance = _hordeEngageDistance.Value;
+            _horderInvulnerable.CheckboxChanged += (s, a) => config.HorderInvulnerableWithHorde = _horderInvulnerable.Checked;
 
             hordeMenu.Add(_hordeEnabled);
             hordeMenu.Add(_hordeInterval);
@@ -449,6 +461,9 @@ namespace GTAZ.UI
             hordeMenu.Add(_hordeSpawnMax);
             hordeMenu.Add(_hordeDespawn);
             hordeMenu.Add(_hordeRunnerChance);
+            hordeMenu.Add(_showHordeBlips);
+            hordeMenu.Add(_hordeEngageDistance);
+            hordeMenu.Add(_horderInvulnerable);
 
             // --- Survivor settings ---
             _survivorsEnabled = new NativeCheckboxItem("Enable Survivors", "Armed NPCs that fight or flee zombies", config.EnableSurvivors);

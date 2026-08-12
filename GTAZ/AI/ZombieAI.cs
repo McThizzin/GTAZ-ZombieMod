@@ -13,7 +13,8 @@ namespace GTAZ.AI
     public enum ZombieType
     {
         Walker,
-        Runner
+        Runner,
+        Horder
     }
 
     public enum ZombieState
@@ -46,6 +47,11 @@ namespace GTAZ.AI
         // marching once the target is lost. Set to null to restore normal wandering.
         public Vector3? HordeMoveTarget { get; set; }
         public float HordeArriveRadius { get; set; } = 5f;
+        // Set by HordeSystem while this member is being reeled back to the horde center
+        // (ApplyGroupingPullBack). Hysteresis: only restored to the shared destination once
+        // back well inside the trigger radius, so a member hovering on the boundary doesn't
+        // flip HordeMoveTarget every tick and churn its march task (the straggler stutter).
+        public bool HordePullingBack { get; set; }
 
         // Confirmed present in anim@ingame@melee@unarmed@streamed_variations_zombie.
         // Picked at random per swing so consecutive hits don't all play the same strike.
@@ -77,6 +83,9 @@ namespace GTAZ.AI
         // Consecutive behavior ticks the zombie spent standing still while Chasing (follow task
         // cleared by the engine). See the Chasing branch - the stuck-speed fallback (lesson 38).
         private int _chaseStuckTicks;
+        // Same counter for the horde march task (TASK_GO_TO_COORD_ANY_MEANS can be engine-cleared
+        // too - blocked events, task-slot reuse, being bumped mid-march). See the Wandering branch.
+        private int _marchStuckTicks;
 
         protected ZombieAI(Ped ped, Vector3 spawnOrigin)
         {
@@ -228,11 +237,35 @@ namespace GTAZ.AI
                             {
                                 Function.Call(Hash.TASK_GO_TO_COORD_ANY_MEANS, Ped,
                                     hordeTarget.X, hordeTarget.Y, hordeTarget.Z, MoveSpeed, 0, false, 0, 0f);
+                                _marchStuckTicks = 0;
                             }
                             else
                             {
                                 Ped.Task.StandStill(500);
                             }
+                        }
+                        else if ((Ped.Position - hordeTarget).Length() > HordeArriveRadius)
+                        {
+                            // The march task self-sustains while running, but the engine can
+                            // clear it at any time (blocked events, task-slot reuse, being
+                            // bumped during a stand-off), leaving a member standing frozen
+                            // mid-march with State stuck in Wandering - the same class of bug
+                            // as the stuck chase (lesson 50). Speed < 0.5f for ~30 behavior
+                            // ticks -> re-issue the march task.
+                            if (Ped.Speed < 0.5f)
+                            {
+                                if (++_marchStuckTicks > 30)
+                                {
+                                    _marchStuckTicks = 0;
+                                    Function.Call(Hash.TASK_GO_TO_COORD_ANY_MEANS, Ped,
+                                        hordeTarget.X, hordeTarget.Y, hordeTarget.Z, MoveSpeed, 0, false, 0, 0f);
+                                }
+                            }
+                            else
+                            {
+                                _marchStuckTicks = 0;
+                            }
+                            Function.Call(Hash.SET_PED_MOVE_RATE_OVERRIDE, Ped, MoveSpeed);
                         }
                     }
                     else if (justEnteredState || --_wanderReissueTimer <= 0)
@@ -371,6 +404,15 @@ namespace GTAZ.AI
 
             if (Perception.CanHearTarget(Ped, player, HearingRange * 2f))
                 return player;
+
+            // Horde members march the sweep with the PLAYER as their one focus - a random
+            // civilian dragging a member off the march into a detour (and into gunfire) is the
+            // "horde gets distracted by random peds before crossing the player" report, and a
+            // chasing horde loses most of its strength to the peds it chases. Skip the
+            // nearest-ped scan entirely so only the player ever pulls a horde member off path.
+            // Ambient zombies (HordeMoveTarget == null) keep the full perception scan.
+            if (HordeMoveTarget is not null)
+                return null;
 
             var nearby = World.GetNearbyPeds(Ped.Position, VisionRange);
             Ped best = null;

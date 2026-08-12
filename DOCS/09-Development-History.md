@@ -202,3 +202,58 @@ zombies went idle during the stand-off. Both fixed:
   same stuck-speed fallback as the faction guards (`Speed < 0.5f` ~30 behavior-ticks → re-issue
   follow). Also corrected the wander reissue cadence: it was `120` behavior-ticks (6-12s at
   `_updateInterval` 3-6 frames) where the comment claimed 2s — now `120 / _updateInterval`. Lesson 50.
+
+### Horde overhaul round (Phase 5 — DOCS/12-Horde-Overhaul.md implemented)
+First Phase 5 feature round. All §3 changes except §3.5 (night siege, deferred to a follow-up):
+- **Sweep-path migration (§3.1):** wandering hordes now march *across* the player. `StartHorde`
+  places the destination on the far side of the player (spawn→player direction, jittered,
+  `HordeSpawnDistanceMax + 200m` past them); the `Heading` is stored and the flowing march keeps
+  advancing along it (re-rolled when a territory blocks).
+- **Horde map blip (§3.2):** `BlipSprite.TeamDeathmatch` (ID 378) per active horde, anchored on the
+  Horder/centroid, short-range, gated by new `ShowHordeBlips` checkbox, visible at announce, deleted
+  on despawn.
+- **Flowing march + grouping (§3.3):** replaced `CentroidReached` (arrive-and-wait) with a cadence
+  push — every 300 frames the destination re-pushes to ~140m ahead of the horde center
+  (`GetHordeReference` = Horder when alive, else centroid), so the mass flows as one body. Members
+  that drift > 25m from the center are reeled back in (`ApplyGroupingPullBack`). The march task got
+  the stuck-speed fallback (lesson 51, same class as lessons 38/50).
+- **Engagement cascade (§3.4):** when any member is engaged, the march target re-points at the
+  player (within new `HordeEngageDistance` slider, default 400m), stopped at the territory edge when
+  the player stands inside a zone (`ResolveSurgeTarget`), so the whole horde converges instead of
+  the player fighting stragglers.
+- **Horder (§3.6):** new `ZombieType.Horder` + `HorderAI` (g_m_m_zombie_02, speed 1.3, wide attack
+  range). Removed from `RunnerModels` — ambient never spawns it. Every horde spawns exactly one as a
+  `size` member (no extra budget). While alive it is the horde center (march reference + blip
+  anchor) and takes no damage while any other member lives — immunity re-asserted+cleared every tick
+  (lesson 51/35). Once the horde is cleared it becomes killable.
+- **Config/menu:** `ShowHordeBlips`, `HordeEngageDistance`, `HorderInvulnerableWithHorde` added to
+  the Horde submenu. Lesson 51.
+- Verified per DOCS/12 §6 checklist (in-game) before this round was marked done.
+
+### Horde playtest 1 fixes (Phase 5 — DOCS/12-Horde-Overhaul.md §0)
+First in-game pass over the overhaul. The debug trigger, blip, 20/20 materialization and Horder
+immunity all worked; the scheduled horde path exposed one hard bug and the pack needed tuning:
+- **Scheduled hordes instantly "depleted" on their first tick → orphan zombies (lesson 52).**
+  `ZombieSystem.ProcessQueue` runs before `HordeSystem.OnTick` in `_tickActions`, so on the frame
+  `StartHorde` enqueues its members the queue has already granted that pass — members materialize the
+  *next* frame, but `UpdateActiveHordes` ran the same frame with `Members.Count == 0` and `IsDepleted`
+  was `Members.Count == 0` → the horde was removed at birth; its later-granted members spawned as 20
+  orphan zombies (no blip, "Hordes: none active" while 20 zombies existed over ambient). Fix:
+  `ActiveHorde.PendingSpawns` — incremented per enqueue, decremented per grant AND per
+  request-expiry/failure (new `OnExpired` on `EnqueueZombieSpawn`); `IsDepleted` is now
+  `Members.Count == 0 && PendingSpawns == 0`.
+- **Random peds dragged hordes off the sweep (lesson 53).** Horde members kept the full nearest-ped
+  scan; a civilian inside vision range pulled a member into a chase, the chase led the mass into
+  gunfire, and the horde arrived depleted (8/20). Fix: `FindBestTarget` skips the ped scan entirely
+  while `HordeMoveTarget != null` — horde members only ever pursue the player. Also hardened the
+  Horder: immunity proofs now apply in the constructor (the materialization frame was un-armed) and
+  the fade loop skips Chasing/Attacking members (a mid-fight fade dropped the "other member alive"
+  immunity count while the horde was visibly fighting).
+- **Stragglers stuttered (lesson 54).** The per-tick pull-back flipped `HordeMoveTarget` between
+  center and destination for a member hovering on the 25m boundary — a march-task reissue every
+  behavior tick ("step one way, stop, step the other way"). Fix: hysteresis (pull >25m, release
+  <15m, `ZombieAI.HordePullingBack`) + repoint the reel only when the center moved > 5m.
+- **Spawn tuning:** `HordeSpawnDistanceMax` 300 → 220 (spawned a bit too far); member cluster
+  5–25m → 4–12m (members spread onto rooftops/buildings in built-up areas).
+- Lessons 52–54 appended to DOCS/08-Lessons-Learned.md. Re-test checklist items marked ✓ in
+  DOCS/12 §6.

@@ -34,6 +34,7 @@ splits them into three layers:
 | `09-Development-History.md` | Design log: what changed per phase/round and why | Understanding why a design is the way it is |
 | `10-Archive.md` | Failed fixes and removed features — what to **not** re-add or repeat | "Should we re-add corpse infection / hold-timer capture…?" |
 | `11-Refactoring-Plan.md` | Forward-looking plan: dead code, misnames, duplication, FactionSystem splits, code/doc drift — phased, build-verified | Starting a Phase 5 refactor |
+| `12-Horde-Overhaul.md` | Forward-looking plan: horde cohesion, encounterability (sweep-path + map blip), engagement cascade, staged night siege | Planning horde improvements |
 
 ## Project status (v1 shipped)
 

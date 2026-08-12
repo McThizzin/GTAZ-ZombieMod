@@ -176,14 +176,21 @@ Ambient zombie spawning and lifecycle.
 
 ### Systems/HordeSystem.cs
 Dynamic horde events: wandering hordes on a timer + once-per-night sieges.
-- Announced (notification + sound cue) **before** any entity spawns; survivors are dropped at the
-  announce position via `SurvivorSystem.SpawnAt`.
+- Announced (notification + distant-gunfire sound cue + cam shake) **before** any entity spawns —
+  no survivors dropped at the site (playtest 2 removed the old `SpawnAt` call; horde members are
+  player-only, so site survivors just shot the passing horde and ignored `SurvivorCount`).
 - Members live in `HordeSystem`'s own list — **not** `ZombieSystem._activeZombies` — so
   `CleanupDistantZombies` never despawns them.
 - While any horde is live it borrows reserved minimums via `RebalanceForHorde(true)` (ref-counted);
   ambient spawning is throttled in `ZombieSystem.TryAmbientSpawn` (distance + target count), not
   globally suppressed, so the map stays populated.
 - Hordes never stage or march through ANY territory (`FactionSystem.IsInAnyTerritory`).
+- Phase 5 (DOCS/12): wandering hordes sweep across the player on a stored `Heading`; the march is a
+  cadence-based flow (`FlowPushInterval`, destination ~140m ahead of the Horder/centroid) with
+  >25m-straggler pull-back; engaged hordes surge toward the player within `HordeEngageDistance`
+  (stopped at the territory edge); a skull map blip (`ShowHordeBlips`) tracks each horde. Each horde
+  spawns one `HorderAI` (horde center, immune while any other member lives — see
+  `AI/ZombieTypes/HorderAI.cs`).
 
 ### Systems/SurvivorSystem.cs
 Transient armed human encounters: fighters use `TASK_COMBAT_PED`, cowards `TASK_SMART_FLEE_PED`
@@ -256,8 +263,11 @@ perception via `Perception` (distance + LOS, doubled hearing for the player).
   corpse), and the self-sustaining `TASK_WANDER_IN_AREA` is re-issued on a 2s cadence
   (`_wanderReissueTimer`) because the engine can clear it.
 
-### AI/ZombieTypes/WalkerAI.cs & RunnerAI.cs
+### AI/ZombieTypes/WalkerAI.cs & RunnerAI.cs & HorderAI.cs
 Walker: 0.8 speed, 40m sight, melee. Runner: 1.8 speed, 60m sight, night-only (20:00–03:00).
+Horder (Phase 5): g_m_m_zombie_02, 1.3 speed, wide attack range; the horde's center — spawned one
+per horde by `HordeSystem`, immune (proofs re-asserted every tick) while any other horde member
+lives, killable once the horde is cleared.
 
 ### AI/Perception.cs
 Static: `CanSee` (distance + LOS), `CanHear` (distance, doubled for player), `HasLineOfSight`.

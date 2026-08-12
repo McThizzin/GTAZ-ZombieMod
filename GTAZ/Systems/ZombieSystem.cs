@@ -51,11 +51,15 @@ namespace GTAZ.Systems
         [
             unchecked((int)PedHash.Zombie01),
             unchecked((int)PedHash.Juggalo01AMY),
-            unchecked((int)0x98549CC4), // g_m_m_zombie_02
             unchecked((int)0xBE5F26D7), // ig_zombie_dj_01
             unchecked((int)0x296EBEF2), // g_m_m_zombie_04
             unchecked((int)0xFAB86186), // g_m_m_zombie_05
         ];
+
+        // The Horder (horde center) model - g_m_m_zombie_02 is NOT in the SHVDN3 PedHash enum.
+        // Deliberately removed from RunnerModels above so it never appears as an ambient runner:
+        // HordeSystem is the only spawner, exactly one per horde.
+        public const int HorderModel = unchecked((int)0x98549CC4);
 
 #pragma warning disable IDE0044, RCS1169 // _spawnTimer is mutated in TryAmbientSpawn
         private int _spawnTimer;
@@ -196,12 +200,14 @@ namespace GTAZ.Systems
         }
 
         // Shared zombie-materialization path for every spawner (ambient, debug, hordes). Picks a
-        // model from the runner/walker pool, defers the actual ped creation through the
-        // SpawnRequestQueue (3 grants/pass so bursts stream in over several frames), and hands
-        // the finished ZombieAI to onSpawned so each caller files it in its own list (ambient's
-        // _activeZombies vs HordeSystem's horde.Members). RaiseZombieSpawned fires after the
-        // callback so listeners always find the new zombie already registered.
-        public void EnqueueZombieSpawn(Vector3 position, bool runner, string origin, Action<ZombieAI> onSpawned)
+        // model from the runner/walker pool (or the Horder model for a horde center), defers the
+        // actual ped creation through the SpawnRequestQueue (3 grants/pass so bursts stream in over
+        // several frames), and hands the finished ZombieAI to onSpawned so each caller files it in
+        // its own list (ambient's _activeZombies vs HordeSystem's horde.Members).
+        // RaiseZombieSpawned fires after the callback so listeners always find the new zombie
+        // already registered.
+        public void EnqueueZombieSpawn(Vector3 position, bool runner, string origin,
+            Action<ZombieAI> onSpawned, bool horder = false, Action onExpired = null)
         {
             var request = new SpawnRequest
             {
@@ -212,7 +218,7 @@ namespace GTAZ.Systems
                 SpawnFactory = () =>
                 {
                     var models = runner ? RunnerModels : WalkerModels;
-                    var modelHash = models[_rng.Next(models.Length)];
+                    int modelHash = horder ? HorderModel : models[_rng.Next(models.Length)];
                     var model = new Model(modelHash);
                     model.Request();
                     return World.CreatePed(model, position, _rng.Next(0, 360));
@@ -223,10 +229,13 @@ namespace GTAZ.Systems
                     if (ped?.Exists() is not true)
                         return;
 
-                    ZombieAI zombie = runner ? new RunnerAI(ped, position) : new WalkerAI(ped, position);
+                    ZombieAI zombie = horder
+                        ? new HorderAI(ped, position)
+                        : runner ? new RunnerAI(ped, position) : new WalkerAI(ped, position);
                     onSpawned?.Invoke(zombie);
                     ZombieEvents.RaiseZombieSpawned(ped);
-                }
+                },
+                OnExpired = onExpired
             };
 
             _queue.Enqueue(request);

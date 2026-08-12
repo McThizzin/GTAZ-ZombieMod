@@ -618,6 +618,88 @@ and the gap only showed up when the environment got chaotic (a stand-off) instea
 timer counts *behavior* ticks (gated by an update interval), calibrate it against that interval, not
 against frames.
 
+### 51. The horde march task is the same self-sustaining-task class — and a "boss" entity's immunity must be cleared, not just re-asserted
+**Symptom (Phase 5 horde-overhaul round):** (a) horde members could stand frozen mid-march after the
+engine cleared their `TASK_GO_TO_COORD_ANY_MEANS` (physics bumps, blocked events, task-slot reuse) —
+exactly the lesson-37/38/50 class, but on the horde-march branch which had no recovery path; (b) the
+new Horder (horde-center zombie) needed a "no damage while its horde lives" rule.
+**Root cause/fixes:**
+- The horde-march branch of `ZombieState.Wandering` only re-issued the march task on target-change/
+  state-entry. It now has the same stuck-speed fallback (`Speed < 0.5f` for ~30 behavior ticks →
+  re-issue `TASK_GO_TO_COORD_ANY_MEANS`) plus a per-tick `SET_PED_MOVE_RATE_OVERRIDE`, mirroring the
+  chase branch. The cadence-based flowing march (HordeSystem pushes a new destination every ~5s) is
+  what makes those re-issues legitimate (lesson 5).
+- The Horder immunity is re-asserted **and cleared** every tick: `Ped.IsInvincible` +
+  bullet/explosion/fire/melee proofs set from a `HordeAlive` flag that HordeSystem flips once the
+  horde is depleted. Setting the proofs once on spawn would silently stop working on entity
+  re-creation (lesson 35), and equally a once-set flag left behind would keep the Horder invincible
+  after its horde died — the every-tick write must assign the *current* boolean, not just `true`.
+  Also: the immunity is "while any *other* member lives" — counting the Horder itself would make it
+  permanently unkillable (as long as it's alive it's immune).
+**Lesson:** every self-sustaining movement task needs the stuck-speed recovery (this is now the third
+time — wander, chase, march). And for a conditional god-mode/boss-flag, re-asserting `true` each tick
+is only half the job: you must write `false` when the condition ends, or the flag sticks forever.
+
+### 52. A freshly-enqueued horde reads as "depleted" on its first tick — and its members spawn as orphans
+**Symptom (Phase 5 playtest 1):** waiting for a scheduled horde fired the announce notification, but
+the debug status read `Hordes: none active` while ~20 zombies existed above the ambient target — and
+no horde blip ever appeared. The debug-menu horde spawn worked fine (blip, 20/20, Horder immunity).
+**Root cause:** `ModuleManager` ticks `ZombieSystem.OnTick` (which runs `SpawnRequestQueue.ProcessQueue`,
+the 3-grants-per-pass path) *before* `HordeSystem.OnTick`. So on the frame `StartHorde` enqueues its
+member spawns, the queue has already granted that pass — the horde's own members only materialize on
+the *next* frame. `UpdateActiveHordes` runs the same frame with `Members.Count == 0`, and `IsDepleted`
+was just `Members.Count == 0` → the horde was instantly despawned and removed. Later grants then fired
+their callbacks against the removed horde's `Members` list — 20 zombies with a dead horde reference,
+nobody ticking them, no blip. The debug trigger escaped the bug only because menu activation runs
+*after* Horde.OnTick (`Menu.Process` is later in `_tickActions`), so the queue granted members before
+the first `UpdateActiveHordes` saw the horde.
+**Fix:** `ActiveHorde.PendingSpawns` — incremented per enqueue in `StartHorde`, decremented in each
+`OnGranted` callback and in a new `OnExpired` (passed through `ZombieSystem.EnqueueZombieSpawn`,
+which already fires on request TTL expiry or factory failure). `IsDepleted` is now
+`Members.Count == 0 && PendingSpawns == 0`, so a horde survives its whole stream-in and is never
+removed while any request is still queued.
+**Lesson:** "no members yet" is *materializing*, not *depleted*. Any spawner that enqueues deferred
+spawns and then tests emptiness on the same tick is racing its own queue — count the outstanding
+requests, not just the results.
+
+### 53. Horde members must not be distracted by random peds — the march is a sweep across the player
+**Symptom (Phase 5 playtest 1):** hordes spawning a bit too far away got pulled off their crossing by
+random civilians; chasing those peds led the mass into gunfire and it arrived heavily depleted
+(8/20), and the Horder could die to peds mid-fight.
+**Root cause:** horde members are ordinary `ZombieAI` with a `HordeMoveTarget`, so the base
+`FindBestTarget` gave them the full nearest-ped scan — any civilian inside vision range dragged a
+marching member into a `TASK_FOLLOW` detour, which cascaded through the engagement surge.
+**Fixes:**
+- `FindBestTarget` returns early (`null`) for any member with `HordeMoveTarget != null` when the
+  player isn't perceivable — horde members only ever pursue the player, mirroring the Families crew
+  ("the player is their only focus"). Ambient zombies keep the full scan.
+- The Horder's immunity proofs are now applied in the **constructor** too, not just on the first
+  `Update()` — there was a one-frame un-armed window between materialization and the first tick.
+- Members **mid-fight are never faded**: the distance/territory fade loop skips `Chasing`/`Attacking`
+  members. Previously a member that stepped into a territory ring during an engagement was faded and
+  removed, dropping the "any other member alive" count that gates Horder immunity while its horde was
+  visibly still fighting.
+**Lesson:** a mass AI is a swarm, not a mob of individuals — its members should share one focus. When
+a boss-flag depends on a count, every way that count can drop (fade, despawn, eviction) must be
+audited, not just deaths.
+
+### 54. Straggler pull-back with no hysteresis churns the march task into a "step, stop, step" stutter
+**Symptom (Phase 5 playtest 1):** stragglers stepped one way, stopped, stepped the other way, on
+repeat.
+**Root cause:** `ApplyGroupingPullBack` ran **every tick** and, for a member hovering on the 25m
+boundary, flipped `HordeMoveTarget` between the horde center and the shared destination every tick.
+`ZombieAI` re-issues the march task whenever `_lastHordeTarget != hordeTarget`, so the task was
+restarted every behavior tick — the exact restart-stutter of lesson 5, oscillating between two
+targets.
+**Fix:** hysteresis + per-member pull state. A member is pulled only past `GroupingPullBackDistance`
+(25m), tracked by `ZombieAI.HordePullingBack`, and released back to the shared destination only once
+within `GroupingPullBackRelease` (15m). While pulling, the reel target is re-pointed only when the
+flowing center moved > 5m (it moves ~0.1m per behavior tick, so a per-tick repoint was pointless
+churn).
+**Lesson:** any per-tick loop that writes a "movement target" value consumed by a task-reissue check
+needs a deadband — otherwise boundary oscillation becomes task-restart stutter (lesson 5 again, in a
+new shape).
+
 ---
 
 ## Superseded lessons (record only — subsystem deleted)

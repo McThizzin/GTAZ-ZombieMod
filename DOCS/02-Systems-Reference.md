@@ -200,6 +200,34 @@ the player. Recruiting never requires aiming a weapon (aiming flipped peds hosti
   (`TARGET_SIZE` requests, priority by distance) → march to a moving `Destination` (`HordeMoveTarget`
   + `HordeArriveRadius` on zombies) → engage the player if perceived, else return to marching →
   deplete on death / despawn past `HordeDespawnDistance` / end at daybreak (night).
+- **Sweep-path migration (§3.1):** a wandering horde's destination goes on the *far side of the
+  player* (`HordeSpawnDistanceMax + 200m` past them, along a jittered line from spawn through the
+  player), so the march sweeps across the player's area instead of a random heading that can walk
+  away. The stored `Heading` (direction of travel) drives every later waypoint.
+- **Flowing march (§3.3):** every ~5s (`FlowPushInterval` = 300 frames) the destination re-pushes to
+  a point ~140m ahead of the horde center (`GetHordeReference`), so the mass flows as one body and
+  no member ever "arrives and waits". The cadence is the only task-reissue trigger (lesson 5).
+  Stragglers > 25m are reeled back to the center with **hysteresis** (trigger 25m, release 15m,
+  `ZombieAI.HordePullingBack`) — without the hysteresis a member hovering on the boundary flipped
+  `HordeMoveTarget` every tick and stuttered (lesson 54).
+- **Player-only focus (playtest 1):** horde members skip the nearest-ped scan while
+  `HordeMoveTarget` is set — the PLAYER is their one target, so random peds can't drag the sweep
+  off-course or lead it into gunfire (lesson 53). Ambient zombies keep the full scan.
+- **Materialization (lesson 52):** members stream in via the shared queue (3 grants/pass); a horde
+  is not depleted while any spawn request is still pending (`ActiveHorde.PendingSpawns`) — counting
+  `Members` alone removed a fresh horde on its first tick (ZombieSystem.ProcessQueue runs before
+  HordeSystem.OnTick) and orphaned its later-granted members.
+- **Engagement cascade (§3.4):** when any member is Chasing/Attacking, the march target re-points at
+  the player (within `HordeEngageDistance`) so non-perceiving members converge too — but stops at
+  the territory edge if the player stands inside a zone (`ResolveSurgeTarget`).
+- **Horder (§3.6):** every horde spawns exactly one `HorderAI` (g_m_m_zombie_02, counts as one of
+  the `size` members). While alive it is the horde center — march reference, blip anchor, grouping
+  center. It takes no damage while any *other* member lives (proofs applied at construction AND
+  re-asserted/cleared per tick, lesson 35), becoming killable once the horde is cleared. The
+  distance/territory fade loop skips engaged members so a mid-fight fade can't drop the immunity's
+  "other member alive" count (lesson 53).
+- **Map blip (§3.2):** `BlipSprite.TeamDeathmatch` (ID 378), short-range, anchored on the
+  Horder/centroid, gated by `ShowHordeBlips`, created at announce and deleted on despawn.
 - While any horde is live: `RebalanceForHorde(true)` (borrow minimums). `HordeSystem` calls
   `ProcessQueue()` itself while a horde is live (a global ambient-suppression gate previously
   starved the queue and horde requests expired on the 8s TTL).
