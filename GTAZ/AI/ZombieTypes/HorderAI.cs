@@ -61,5 +61,15 @@ namespace GTAZ.AI.ZombieTypes
             // left set would keep the Horder invincible after its horde is gone (lesson 35).
             ApplyImmunity(immune);
         }
+
+        // Clearing the horde pays out: the Horder drops a body armor pickup. HordeSystem routes
+        // dead horders through OnDeath (members are never ZombieSystem-owned), and distance/
+        // territory fades use FadeOut so they drop nothing - the reward is only for an actual kill.
+        public override void OnDeath()
+        {
+            if (Ped?.Exists() is true)
+                World.CreatePickup(PickupType.Armour, Ped.Position);
+            base.OnDeath();
+        }
     }
 }

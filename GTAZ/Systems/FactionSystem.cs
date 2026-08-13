@@ -232,6 +232,10 @@ namespace GTAZ.Systems
 
         public bool IsZoneUnderAttack(TerritoryZone zone) => _territory.IsZoneUnderAttack(zone);
 
+        // Zones currently in the leave-grace countdown (player stepped out of a hostile ring mid
+        // takeover). Consumed by MenuManager to draw the "return to {zone} - Ns" on-screen text.
+        public List<(string Name, int Seconds)> GetActiveLeaveGraces() => _territory.GetActiveLeaveGraces();
+
         // Re-applies owned-territory state loaded from a save (the list of owned zone hashes).
         // Runs on the first tick AFTER zones are initialized (never in a ctor - zone data isn't
         // ready, and the relationship natives aren't either), flipping matching zones to Survivor

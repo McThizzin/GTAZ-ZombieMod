@@ -24,8 +24,10 @@ namespace GTAZ.Data
         // bandit defenders are queued to spawn so the zone doesn't start capturing on the same
         // tick their spawns are enqueued; ResistTicks counts consecutive defender-free ticks
         // before capture is allowed to begin; PendingDefenderSpawns tracks queued spawn requests
-        // so DefendersPending clears only when every queued defender resolved. PlayerAwayTicks
-        // resets capture state only after the player has left for a while.
+        // so DefendersPending clears only when every queued defender resolved. LeaveGraceTicks
+        // counts down the on-screen "return to the area" grace while the player is outside the
+        // ring but a takeover attempt is still in flight - the attempt resets only when it hits
+        // zero (or the player re-enters, which cancels it).
         //
         // RespawnCooldownTicks counts down while no defenders are alive; when it hits 0 a fresh
         // defender wave spawns, so a hostile zone always fights back while the player stays in it
@@ -36,7 +38,7 @@ namespace GTAZ.Data
         public bool DefendersPending { get; set; }
         public int ResistTicks { get; set; }
         public int PendingDefenderSpawns { get; set; }
-        public int PlayerAwayTicks { get; set; }
+        public int LeaveGraceTicks { get; set; }
         public int RespawnCooldownTicks { get; set; }
         public int FightKills { get; set; }
         public int FightCooldownTicks { get; set; }
@@ -60,8 +62,13 @@ namespace GTAZ.Data
         public bool CaptureInProgress { get; set; }
         // Set once per visit when a proven clear is blocked by the MaxPlayerZones cap, so the
         // player gets one explicit notification instead of silently grinding an un-capturable
-        // zone. Reset when the player leaves (PlayerAwayTicks > 120).
+        // zone. Reset when the player leaves.
         public bool CapBlockedNotified { get; set; }
+
+        // True once the player has armed a surrender of this owned zone (SurrenderCurrentZone).
+        // The zone only actually reverts when the player LEAVES it - the deferral stops the new
+        // hostile defenders from materializing on top of the player who's standing in the zone.
+        public bool SurrenderPending { get; set; }
 
         // True once the player has captured this zone (set by FactionSystem.CaptureZone).
         public bool IsPlayerOwned { get; set; }

@@ -83,8 +83,12 @@ the menu item and update this table.
 | `ShowTerritoryBlips` | true | Owner-colored zone blips. |
 | `ShowTerritoryRadii` | true | Debug radius rings (map ring, `ADD_BLIP_FOR_RADIUS`). |
 | `ShowPlayerCoordinates` | false | Debug HUD: player position/heading/game-zone + live distance to each territory center (mapping aid). |
+| `ShowStatusOverlay` | false | Debug HUD: always-on live system status (same top-left block as coordinates). |
+| `ShowSpawnRadiusRing` | false | Debug minimap ring around the player (radius blip, `ADD_BLIP_FOR_RADIUS`) — measures what a player-relative faction-wave spawn radius covers before the safe wave-spawn rework wires it in. |
+| `SpawnRadiusRingMeters` | 60f | Size of the player radius ring. |
 | `HostileTerritoryZombieCap` | 30 | Ambient zombie cap inside a hostile ring while the player is in it (garrison fights a bounded stream). |
 | `DefenderRespawnCooldownSeconds` | 30 | Hostile-zone defender respawn gap. |
+| `TerritoryLeaveGraceSeconds` | 10 | How long a hostile-zone takeover stays alive (with an on-screen "return to {zone}" countdown) after the player steps out of the ring, before the attempt resets. Living defenders persist either way. |
 | `TerritoryFightKillQuota` | 10 | Defender kills in a hostile ring that trigger a reinforcement wave. Higher = bigger, rarer waves (wave refills to `OutpostDefenderCount`, so each wave is ~quota-sized). |
 | `TerritoryFightWaveSize` | 20 | Counter-attack / defense wave size. |
 | `TerritoryFightReinforcementWaves` | 3 | Max kill-triggered reinforcement waves per takeover visit ("Defense Reinforcement Waves" slider, reset on leaving). |

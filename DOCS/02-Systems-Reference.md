@@ -91,7 +91,8 @@ faction-id constants also live there) and the active faction-ped list. The terri
 lives in `Systems/TerritorySystem.cs`, all faction spawn construction in `Systems/FactionSpawner.cs`,
 and recruiting in `Systems/RecruitManager.cs` — FactionSystem delegates to all three and keeps the
 stable cross-system surface (`HostileTerritoryAt`, `IsPlayerOwnedZone`, `IsInAnyTerritory`,
-`HomeFaction`, `RestoreOwnedTerritories`, `SurrenderCurrentZone`, `TryRecruitAtCrosshair`,
+`HomeFaction`, `RestoreOwnedTerritories`, `SurrenderCurrentZone`, `GetActiveLeaveGraces`,
+`TryRecruitAtCrosshair`,
 `DismissAllRecruits`, `ClearAllFactions`):
 
 | Internal Id | Display | Archetype | Player relation | Accuracy | Spares zombies | Notes |
@@ -168,6 +169,20 @@ which carries a flat Z). Owner-colored `GTAOPlayerSafehouse` blips; debug radius
    respawns and reinforcement waves) → `CaptureZone()` flips ownership **instantly** (no hold-timer),
    survivor guards spawn, blip flips green, ambient zombie spawns suppressed inside.
 5. Frozen at `MaxPlayerZones` cap: a cleared zone at the cap stays contested instead of capturing.
+
+**Leave grace:** stepping out of the hostile ring doesn't instantly end the attempt. While "in-flight"
+takeover progress exists (`FightKills`, pending/respawning defenders, `ResistTicks`, or
+`CaptureInProgress`), the attempt is frozen for `TerritoryLeaveGraceSeconds` with a centered on-screen
+"Return to {zone} to continue the fight - Ns" countdown (`MenuManager` reads
+`FactionSystem.GetActiveLeaveGraces()`). Stepping back in cancels it; on expiry the takeover resets
+(FightKills, waves sent, resist progress, respawn timers) so it can't re-arm itself every away tick.
+A zone with no progress resets immediately. Living defenders are never cleaned by the reset — they
+persist until `FactionDespawnDistance` and the fight resumes on re-entry.
+
+**Surrender (owned zone → home faction):** the menu's surrender item arms `SurrenderPending`; the
+actual revert only executes once the player steps OUT of the owned ring (otherwise the newly hostile
+defenders would pop on top of them). `SurrenderZone` resets takeover state and grants the full raid
+cooldown.
 
 ### Owned-zone raids (timer-only)
 `UpdateTerritoryFights` fires a `TerritoryFightWaveSize` raid of the zone's **home faction** when the

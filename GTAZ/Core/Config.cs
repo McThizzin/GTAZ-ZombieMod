@@ -112,7 +112,20 @@ namespace GTAZ.Core
         // (Debug menu "Show Player Coordinates") so zone centers, radius overlaps, and safe
         // wave-spawn spots can be mapped while playtesting.
         public bool ShowPlayerCoordinates { get; set; } = false;
+        // Draws the live system status (the Debug > Status text: zombies/survivors/queue/peds/
+        // hordes/factions/budget) on screen even while the menu is closed - same top-left area
+        // as Show Player Coordinates.
+        public bool ShowStatusOverlay { get; set; } = false;
+        // Debug: a radius ring around the player on the minimap (ADD_BLIP_FOR_RADIUS, re-positioned
+        // as the player moves) used to measure what radius a player-relative faction-wave spawn
+        // would cover inside a territory before the safe wave-spawn rework wires it into the code.
+        public bool ShowSpawnRadiusRing { get; set; } = false;
+        public float SpawnRadiusRingMeters { get; set; } = 60f;
         public float TerritoryRadius { get; set; } = 250f;
+        // How long a hostile-zone takeover attempt stays alive after the player steps out of the
+        // ring (defenders/FightKills/waves frozen) before it resets. While the grace runs an
+        // on-screen countdown offers the player a chance to step back in and keep the fight going.
+        public int TerritoryLeaveGraceSeconds { get; set; } = 10;
         // Cap on ambient zombies allowed inside a faction-held (hostile) territory ring while
         // the player is in it. The global TargetZombieCount (80) fills a ring to 80 eventually
         // (a probability gate only slowed it), swarming the garrison before the player engages.

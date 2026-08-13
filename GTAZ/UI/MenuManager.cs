@@ -73,6 +73,7 @@ namespace GTAZ.UI
         private NativeSliderItem _territoryAttackInterval;
         private NativeSliderItem _reinforcementWaves;
         private NativeSliderItem _territoryKillQuota;
+        private NativeSliderItem _leaveGraceSeconds;
         private NativeCheckboxItem _showTerritoryBlips;
         private NativeCheckboxItem _showTerritoryRadii;
         private NativeItem _zoneStatusItem;
@@ -95,6 +96,11 @@ namespace GTAZ.UI
         // Debug
         private NativeItem _statusItem;
         private NativeCheckboxItem _showPlayerCoords;
+        private NativeCheckboxItem _statusOverlay;
+        private NativeCheckboxItem _showSpawnRadiusRing;
+        private NativeSliderItem _spawnRadiusRingMeters;
+        private Blip _playerRingBlip;
+        private float _playerRingRadius;
 
         public bool IsAnyMenuOpen => Pool.AreAnyVisible;
 
@@ -219,6 +225,10 @@ namespace GTAZ.UI
             {
                 Value = config.TerritoryFightKillQuota
             };
+            _leaveGraceSeconds = new NativeSliderItem("Leave Grace (s)", "How long a hostile-zone takeover stays alive after you step out of the ring (with an on-screen countdown) before it resets", 30, 1)
+            {
+                Value = config.TerritoryLeaveGraceSeconds
+            };
             _showTerritoryBlips = new NativeCheckboxItem("Show Territory Blips", "Safehouse markers colored by owner", config.ShowTerritoryBlips);
             _showTerritoryRadii = new NativeCheckboxItem("Show Territory Radii", "Debug circle showing the capture/attack radius (Phase 4)", config.ShowTerritoryRadii);
             _zoneStatusItem = new NativeItem("Territory Status", "Live zone ownership");
@@ -227,6 +237,7 @@ namespace GTAZ.UI
             _territoryAttackInterval.ValueChanged += (s, a) => config.TerritoryFightCooldownMinutes = _territoryAttackInterval.Value;
             _reinforcementWaves.ValueChanged += (s, a) => config.TerritoryFightReinforcementWaves = _reinforcementWaves.Value;
             _territoryKillQuota.ValueChanged += (s, a) => config.TerritoryFightKillQuota = _territoryKillQuota.Value;
+            _leaveGraceSeconds.ValueChanged += (s, a) => config.TerritoryLeaveGraceSeconds = _leaveGraceSeconds.Value;
             _showTerritoryBlips.CheckboxChanged += (s, a) =>
             {
                 config.ShowTerritoryBlips = _showTerritoryBlips.Checked;
@@ -246,6 +257,7 @@ namespace GTAZ.UI
             TerritoryMenu.Add(_territoryAttackInterval);
             TerritoryMenu.Add(_reinforcementWaves);
             TerritoryMenu.Add(_territoryKillQuota);
+            TerritoryMenu.Add(_leaveGraceSeconds);
             TerritoryMenu.Add(_showTerritoryBlips);
             TerritoryMenu.Add(_showTerritoryRadii);
             TerritoryMenu.Add(_zoneStatusItem);
@@ -537,6 +549,12 @@ namespace GTAZ.UI
             var clearHordes = new NativeItem("Clear All Hordes", "Fades out all active hordes");
             _statusItem = new NativeItem("Status", "Live system status");
             _showPlayerCoords = new NativeCheckboxItem("Show Player Coordinates", "Draws position, heading, game zone, and live distance to every territory (for mapping zone centers, radius overlaps, and wave-spawn spots)", config.ShowPlayerCoordinates);
+            _statusOverlay = new NativeCheckboxItem("Show Status Overlay", "Draws the live system status on screen even while the menu is closed (same top-left area as Show Player Coordinates)", config.ShowStatusOverlay);
+            _showSpawnRadiusRing = new NativeCheckboxItem("Show Spawn Radius Ring", "Radius ring around the player on the minimap - measure what a player-relative faction-wave spawn radius covers before wiring it into the spawn code", config.ShowSpawnRadiusRing);
+            _spawnRadiusRingMeters = new NativeSliderItem("Spawn Radius Ring (m)", "Size of the player radius ring", 300, 5)
+            {
+                Value = (int)config.SpawnRadiusRingMeters
+            };
 
             spawnZombie.Activated += (s, a) =>
             {
@@ -590,6 +608,13 @@ namespace GTAZ.UI
                 config.ShowPlayerCoordinates = _showPlayerCoords.Checked;
                 GTA.UI.Notification.PostTicker($"~b~Player Coordinates: {(_showPlayerCoords.Checked ? "~g~Enabled" : "~r~Disabled")}", false);
             };
+            _statusOverlay.CheckboxChanged += (s, a) =>
+            {
+                config.ShowStatusOverlay = _statusOverlay.Checked;
+                GTA.UI.Notification.PostTicker($"~b~Status Overlay: {(_statusOverlay.Checked ? "~g~Enabled" : "~r~Disabled")}", false);
+            };
+            _showSpawnRadiusRing.CheckboxChanged += (s, a) => config.ShowSpawnRadiusRing = _showSpawnRadiusRing.Checked;
+            _spawnRadiusRingMeters.ValueChanged += (s, a) => config.SpawnRadiusRingMeters = _spawnRadiusRingMeters.Value;
 
             DebugMenu.Add(spawnZombie);
             DebugMenu.Add(spawnRunner);
@@ -602,6 +627,9 @@ namespace GTAZ.UI
             DebugMenu.Add(clearHordes);
             DebugMenu.Add(_statusItem);
             DebugMenu.Add(_showPlayerCoords);
+            DebugMenu.Add(_statusOverlay);
+            DebugMenu.Add(_showSpawnRadiusRing);
+            DebugMenu.Add(_spawnRadiusRingMeters);
 
             DebugMenu.Closed += (s, a) => ModConfig.Current.Save();
         }
@@ -618,11 +646,12 @@ namespace GTAZ.UI
         // per territory (distance from its center, radius, owner). The '*' prefix marks zones the
         // player is currently inside the visible TerritoryRadius ring of - the ring (not the game
         // zone) is what the player actually sees, so overlap is judged against that distance.
-        private void DrawPlayerCoordinates()
+        // Returns the next free y so the status overlay can stack below it.
+        private float DrawPlayerCoordinates(float y)
         {
             var player = Game.Player.Character;
             if (player?.Exists() is not true)
-                return;
+                return y;
 
             var config = ModConfig.Current;
             var pos = player.Position;
@@ -645,11 +674,47 @@ namespace GTAZ.UI
                 }
             }
 
-            float y = 0.02f;
             foreach (var line in lines)
             {
                 DrawDebugText(line, 0.012f, y, 0.42f, 255, 255, 255, 235);
                 y += 0.028f;
+            }
+            return y;
+        }
+
+        // Always-on status (Debug > "Show Status Overlay"): the same text as the Debug > Status
+        // item description, drawn in the top-left HUD block below any coordinate lines. Built
+        // fresh each frame so it stays live while the menu is closed.
+        private float DrawStatusLines(float y)
+        {
+            if (_zombies is null || _survivors is null)
+                return y;
+
+            foreach (var line in BuildStatusText().Split('\n'))
+            {
+                DrawDebugText(line, 0.012f, y, 0.42f, 255, 255, 255, 235);
+                y += 0.028f;
+            }
+            return y;
+        }
+
+        // Gameplay feedback (not debug): while the player is outside a hostile zone's ring but its
+        // takeover attempt is in the leave-grace window, draw a centered countdown offering them
+        // a chance to step back in and keep the fight alive.
+        private void DrawLeaveGraceCountdown()
+        {
+            if (_factions is null)
+                return;
+
+            var graces = _factions.GetActiveLeaveGraces();
+            if (graces.Count == 0)
+                return;
+
+            float y = 0.2f;
+            foreach (var (name, seconds) in graces)
+            {
+                DrawCenteredText($"~ Return to {name} to continue the fight - {seconds}s", y, 0.55f, 255, 255, 255, 235);
+                y += 0.032f;
             }
         }
 
@@ -665,6 +730,52 @@ namespace GTAZ.UI
             Function.Call(Hash.BEGIN_TEXT_COMMAND_DISPLAY_TEXT, "STRING");
             Function.Call(Hash.ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME, text);
             Function.Call(Hash.END_TEXT_COMMAND_DISPLAY_TEXT, x, y);
+        }
+
+        // Same text commands centered horizontally (used for the leave-grace countdown).
+        private void DrawCenteredText(string text, float y, float scale,
+            int r, int g, int b, int a)
+        {
+            Function.Call(Hash.SET_TEXT_FONT, 0);
+            Function.Call(Hash.SET_TEXT_SCALE, scale, scale);
+            Function.Call(Hash.SET_TEXT_COLOUR, r, g, b, a);
+            Function.Call(Hash.SET_TEXT_OUTLINE);
+            Function.Call(Hash.SET_TEXT_CENTRE, 1);
+            Function.Call(Hash.BEGIN_TEXT_COMMAND_DISPLAY_TEXT, "STRING");
+            Function.Call(Hash.ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME, text);
+            Function.Call(Hash.END_TEXT_COMMAND_DISPLAY_TEXT, 0.5f, y);
+        }
+
+        // Debug player radius ring on the minimap (ADD_BLIP_FOR_RADIUS, same technique as the
+        // territory rings): follows the player and resizes when the slider changes. Used to
+        // measure what a player-relative faction-wave spawn radius would cover in a territory
+        // before the safe wave-spawn rework wires the value into the spawn code.
+        private void UpdatePlayerRadiusRing()
+        {
+            var config = ModConfig.Current;
+            var player = Game.Player.Character;
+            if (!config.ShowSpawnRadiusRing || player?.Exists() is not true)
+            {
+                _playerRingBlip?.Delete();
+                _playerRingBlip = null;
+                return;
+            }
+
+            if (_playerRingBlip?.Exists() is not true || _playerRingRadius != config.SpawnRadiusRingMeters)
+            {
+                // Radius blips take their size from the create call (Scale would set the ring to
+                // that many meters) - resize by recreating.
+                _playerRingBlip?.Delete();
+                _playerRingBlip = World.CreateBlip(player.Position, config.SpawnRadiusRingMeters);
+                _playerRingBlip.Alpha = 160;
+                _playerRingBlip.IsHiddenOnLegend = true;
+                _playerRingBlip.Color = BlipColor.White;
+                _playerRingBlip.SecondaryColor = System.Drawing.Color.Cyan;
+                _playerRingBlip.Name = "Spawn radius";
+                _playerRingRadius = config.SpawnRadiusRingMeters;
+            }
+
+            _playerRingBlip.Position = player.Position;
         }
 
         private void ApplyAllToSystems()
@@ -724,8 +835,19 @@ namespace GTAZ.UI
 
         public void Tick()
         {
-            if (ModConfig.Current.ShowPlayerCoordinates)
-                DrawPlayerCoordinates();
+            var config = ModConfig.Current;
+
+            // Debug HUD: coordinates then the always-on status, stacked in the same top-left block.
+            float y = 0.02f;
+            if (config.ShowPlayerCoordinates)
+                y = DrawPlayerCoordinates(y);
+            if (config.ShowStatusOverlay)
+                DrawStatusLines(y);
+
+            // Gameplay text (leave-grace countdown) and the debug minimap ring render every frame,
+            // independent of menu visibility.
+            DrawLeaveGraceCountdown();
+            UpdatePlayerRadiusRing();
 
             if (Pool.AreAnyVisible)
             {

@@ -86,6 +86,10 @@ namespace GTAZ.AI
         // Same counter for the horde march task (TASK_GO_TO_COORD_ANY_MEANS can be engine-cleared
         // too - blocked events, task-slot reuse, being bumped mid-march). See the Wandering branch.
         private int _marchStuckTicks;
+        // Set while the zombie is fleeing because it's on fire (molotovs). Mirrors the water
+        // handler: the branch short-circuits above the state machine, so State keeps whatever it
+        // was and the flag is the only thing remembering the flee is active.
+        private bool _fireFleeing;
 
         protected ZombieAI(Ped ped, Vector3 spawnOrigin)
         {
@@ -133,6 +137,30 @@ namespace GTAZ.AI
             {
                 State = ZombieState.Dead;
                 return;
+            }
+
+            // On fire (molotovs, exploded cars): a burning zombie breaks off and flees instead of
+            // pressing the attack - FireFlee from the player scatters them away from the fire, so
+            // a molotov clears a patch instead of piling bodies on it. The branch short-circuits
+            // above the state machine like the water handler, so State keeps whatever it was and
+            // HordeSystem's engaged/fade logic (Chasing/Attacking only) is unaffected. When the
+            // fire goes out, ClearAllImmediately drops the flee task so the next behavior tick
+            // re-issues the normal Wandering/Chasing/march task.
+            if (Ped.IsOnFire)
+            {
+                if (!_fireFleeing)
+                {
+                    _fireFleeing = true;
+                    Target = null;
+                    if (Game.Player.Character?.Exists() is true)
+                        Ped.Task.FleeFrom(Game.Player.Character, 80f, -1);
+                }
+                return;
+            }
+            if (_fireFleeing)
+            {
+                _fireFleeing = false;
+                Ped.Task.ClearAllImmediately();
             }
 
             // Zombies don't swim. The pathing hints (SET_PED_PATH_MAY_ENTER_WATER) don't hold

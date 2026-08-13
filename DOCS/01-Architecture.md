@@ -212,7 +212,8 @@ save-restore) is delegated to `TerritorySystem`; spawning (ambient/patrol/defend
 `SpawnRequest`s) to `FactionSpawner`; recruiting (soft-aim + recruit/dismiss + recruit upkeep) to
 `RecruitManager`. FactionSystem keeps the stable public surface (`TryRecruitAtCrosshair`,
 `DismissAllRecruits`, `HostileTerritoryAt`, `IsPlayerOwnedZone`, `IsInAnyTerritory`,
-`HomeFaction`, `RestoreOwnedTerritories`, `SurrenderCurrentZone`, `ClearAllFactions`) as thin delegates.
+`HomeFaction`, `RestoreOwnedTerritories`, `SurrenderCurrentZone`, `GetActiveLeaveGraces`,
+`ClearAllFactions`) as thin delegates.
 
 ### Systems/FactionSpawner.cs
 Owns every faction ped's `SpawnRequest`: ambient faction members (weighted by

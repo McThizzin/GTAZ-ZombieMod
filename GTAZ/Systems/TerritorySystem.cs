@@ -101,23 +101,62 @@ namespace GTAZ.Systems
 
                 if (zone.IsPlayerOwned)
                 {
-                    zone.PlayerAwayTicks = 0;
+                    // Surrender is armed by the menu while the player stands in the zone, but
+                    // only executes once they actually leave - reverting ownership (and spawning
+                    // the new hostile defenders) while the player is standing in the zone would
+                    // pop the defenders on top of them.
+                    if (!playerInside && zone.SurrenderPending)
+                    {
+                        SurrenderZone(zone);
+                        continue;
+                    }
+
+                    zone.LeaveGraceTicks = 0;
                     TrySpawnGuards(zone);
                     continue;
                 }
 
                 if (!playerInside)
                 {
-                    zone.PlayerAwayTicks++;
-                    if (zone.PlayerAwayTicks > 120)
+                    if (zone.SurrenderPending)
                     {
-                        zone.ResistTicks = 0;
-                        zone.RespawnCooldownTicks = 0;
-                        zone.PendingDefenderSpawns = 0;
-                        zone.DefendersPending = false;
-                        zone.CaptureInProgress = false;
-                        zone.CapBlockedNotified = false;
+                        SurrenderZone(zone);
+                        continue;
                     }
+
+                    // Leave grace: a takeover attempt the player steps out of the ring is kept
+                    // alive for TerritoryLeaveGraceSeconds with an on-screen countdown, so
+                    // crossing the ring line doesn't instantly end the fight. While the grace
+                    // runs, FightKills / ReinforcementWavesSent / resist progress stay frozen;
+                    // stepping back in cancels it. Only "in-flight" progress arms a grace -
+                    // a zone with no wave progress (FightKills 0, nothing queued/respawning)
+                    // resets immediately, and after the grace expires the reset clears that
+                    // progress so it can't re-arm the moment it's done.
+                    bool graceWorthy = zone.DefendersPending
+                        || zone.ResistTicks > 0
+                        || zone.CaptureInProgress
+                        || zone.RespawnCooldownTicks > 0
+                        || zone.FightKills > 0;
+                    if (graceWorthy)
+                    {
+                        if (zone.LeaveGraceTicks <= 0)
+                            zone.LeaveGraceTicks = config.TerritoryLeaveGraceSeconds * 60;
+                        zone.LeaveGraceTicks--;
+                        if (zone.LeaveGraceTicks > 0)
+                            continue; // grace running - keep the takeover attempt alive
+                    }
+
+                    // Grace over (or nothing in flight): reset the takeover attempt. Living
+                    // defenders are NOT cleaned here - they persist until the player is
+                    // FactionDespawnDistance away (FactionSystem.UpdatePeds) and the fight just
+                    // resumes on re-entry.
+                    zone.LeaveGraceTicks = 0;
+                    zone.ResistTicks = 0;
+                    zone.RespawnCooldownTicks = 0;
+                    zone.PendingDefenderSpawns = 0;
+                    zone.DefendersPending = false;
+                    zone.CaptureInProgress = false;
+                    zone.CapBlockedNotified = false;
                     // Leaving the territory resets the takeover attempt: kills stop counting
                     // toward a defense wave the moment the player steps out of the zone, and
                     // the reinforcement-wave budget refills for the next visit.
@@ -126,7 +165,7 @@ namespace GTAZ.Systems
                     continue;
                 }
 
-                zone.PlayerAwayTicks = 0;
+                zone.LeaveGraceTicks = 0;
 
                 // Takeover-defense escalation (per-area horde mechanic): killing bandits inside
                 // a hostile zone fills its defense quota, and each time it's met the bandits top
@@ -543,12 +582,15 @@ namespace GTAZ.Systems
                 zone.IsPlayerOwned = true;
                 zone.ResistTicks = 0;
                 zone.RespawnCooldownTicks = 0;
-                zone.FightKills = 0;
-                zone.ReinforcementWavesSent = 0;
-                zone.CaptureInProgress = false;
-                zone.PendingRaiderSpawns = 0;
+            zone.FightKills = 0;
+            zone.ReinforcementWavesSent = 0;
+            zone.CaptureInProgress = false;
+            zone.PendingRaiderSpawns = 0;
+            zone.LeaveGraceTicks = 0;
+            zone.SurrenderPending = false;
                 zone.FightCooldownTicks = ModConfig.Current.TerritoryFightCooldownMinutes * 60 * 60;
-                zone.PlayerAwayTicks = 0;
+                zone.LeaveGraceTicks = 0;
+                zone.SurrenderPending = false;
                 zone.UpdateBlip();
                 zone.UpdateRadiusBlip();
                 restored++;
@@ -559,9 +601,11 @@ namespace GTAZ.Systems
         }
 
         // Player surrenders the owned territory they're currently standing in (within
-        // TerritoryRadius of its center). The zone reverts to hostile ownership so the slot
-        // frees up and the player can capture a different territory (MaxPlayerZones cap).
-        // Guards at the outpost are removed and any active raid on the zone is cancelled.
+        // TerritoryRadius of its center). The surrender is ARMED here but only executes when the
+        // player leaves the zone (UpdateZones) - reverting ownership immediately would spawn the
+        // new hostile defenders on top of the player who's standing in the zone. The zone frees
+        // its slot for capturing another territory (MaxPlayerZones cap); guards are removed and
+        // any active raid cancelled at that point.
         public bool SurrenderCurrentZone()
         {
             var playerPos = Game.Player.Character.Position;
@@ -571,7 +615,9 @@ namespace GTAZ.Systems
                 if (zone.IsPlayerOwned
                     && SpawnUtils.HorizontalDistance(zone.Center, playerPos) <= radius)
                 {
-                    SurrenderZone(zone);
+                    zone.SurrenderPending = true;
+                    GTA.UI.Notification.PostTicker($"~y~Standing down in {zone.DisplayName} - leave the area to complete the surrender.", false);
+                    Logger.Info($"Surrender armed for {zone.DisplayName} - completes when the player leaves");
                     return true;
                 }
             }
@@ -607,13 +653,28 @@ namespace GTAZ.Systems
             zone.CaptureInProgress = false;
             zone.PendingRaiderSpawns = 0;
             zone.FightCooldownTicks = 0;
-            zone.PlayerAwayTicks = 0;
+            zone.LeaveGraceTicks = 0;
+            zone.SurrenderPending = false;
             zone.CapBlockedNotified = false;
             zone.UpdateBlip();
             zone.UpdateRadiusBlip();
 
             GTA.UI.Notification.PostTicker($"~y~You surrendered {zone.DisplayName}.", false);
             Logger.Info($"Zone surrendered: {zone.DisplayName}");
+        }
+
+        // Zones with an active leave-grace countdown (the player stepped out of the ring mid
+        // takeover) so the UI can draw the "return to {zone} - Ns" lines. Seconds are ceiling-
+        // rounded so the first drawn value is the full grace, not 0.9 of it.
+        public List<(string Name, int Seconds)> GetActiveLeaveGraces()
+        {
+            var result = new List<(string Name, int Seconds)>();
+            foreach (var zone in Zones)
+            {
+                if (zone.LeaveGraceTicks > 0)
+                    result.Add((zone.DisplayName, (zone.LeaveGraceTicks + 59) / 60));
+            }
+            return result;
         }
 
         // --- Cross-system queries ---
