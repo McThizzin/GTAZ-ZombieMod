@@ -714,6 +714,25 @@ now reads `$"Return to {name} to continue the fight - {seconds}s"`.
 **Lesson:** GTA text commands have a mini-markup language — treat `~` like an escape char. If a text
 line "isn't showing", grep it for a stray `~` before suspecting draw position/visibility.
 
+### 56. `RunFromFiresAndExplosions` (118) doesn't stop an *ignited* ped's panic — block it with `IgnoreBeingOnFire` (430)
+**Symptom (post-v1 playtest):** zombies still fled and scattered when a molotov set them on fire, even
+with `SET_PED_CONFIG_FLAG(ped, 118, false)` (`CPED_CONFIG_FLAG_RunFromFiresAndExplosions`),
+`SET_PED_CONFIG_FLAG(ped, 208, true)` (`DisableExplosionReactions`), `BlockPermanentEvents = true`,
+and `SET_PED_FLEE_ATTRIBUTES(ped, 0, false)`. The flag block worked for gunfire/explosions (no flee
+from those), so it wasn't a flags-not-sticking issue — the ignited-ped reaction is a different task.
+**Root cause:** being *set on fire* gives the ped a dedicated panic task (the running-around-screaming
+behavior). Flag 118 only stops the ped from *running away from a fire/explosion threat*; it does not
+suppress the panic task issued when the ped itself is burning. There is no `SET_PED_FLEE_ATTRIBUTES`
+bit for it either.
+**Fix:** `SET_PED_CONFIG_FLAG(ped, 430, true)` — `CPED_CONFIG_FLAG_IgnoreBeingOnFire`. The burning ped
+keeps its current behavior (Wandering/Chasing/attacking) and the burn damage stays as the crowd
+control. Flag list lives in the `ePedConfigFlags` enum (citizenfx/natives `PED/SetPedConfigFlag.md`);
+`RunFromFiresAndExplosions = 118`, `DisableExplosionReactions = 208`, `DisableLadderClimbing = 146`,
+`IgnoreBeingOnFire = 430`.
+**Lesson:** when a ped "still does X" despite the obvious config flag, the behavior may be a dedicated
+task or event path, not the threat response that flag name implies — get the full `ePedConfigFlags`
+enum and look for a direct "Ignore…" flag for the exact state.
+
 ---
 
 ## Superseded lessons (record only — subsystem deleted)

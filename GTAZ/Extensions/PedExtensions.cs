@@ -463,6 +463,12 @@ namespace GTAZ.Extensions
             Function.Call(Hash.SET_PED_CONFIG_FLAG, ped, 208, true);
             Function.Call(Hash.SET_PED_CONFIG_FLAG, ped, 39, true);
             Function.Call(Hash.SET_PED_CAN_EVASIVE_DIVE, ped, false);
+            // An ignited zombie STILL panics/flees even with 118/208 false - the running-around-
+            // screaming CTaskFirePanic is a separate reaction, not a "run from fire" threat
+            // response. Flag 430 = CPED_CONFIG_FLAG_IgnoreBeingOnFire suppresses that panic, so
+            // a molotov'd zombie keeps pressing its normal Wandering/Chasing/attack behavior
+            // while burning (its crowd-control is the burn damage, not panic).
+            Function.Call(Hash.SET_PED_CONFIG_FLAG, ped, 430, true);
 
             // Pathfinding hints to stay out of water. The pathfinder does not honor these for
             // every task type, so ZombieAI.Update also force-pulls swimming zombies back onto

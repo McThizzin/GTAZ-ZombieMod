@@ -44,14 +44,15 @@ what failed, why, and what replaced it. The verified lessons behind these are in
   flips forever. Neither could distinguish a direct shot from a stray (lesson 30).
 - **Replaced by:** relationship groups (Companion 0) + combat attributes 25/68.
 
-### Zombies fleeing while on fire (removed post-v1, playtest)
+### Zombies fleeing while on fire (scripted flee removed post-v1, playtest)
 - **What:** a `Ped.IsOnFire` branch at the top of `ZombieAI.Update` that ran
   `Ped.Task.FleeFrom(player, 80f, -1)` (`_fireFleeing` flag, short-circuit above the state machine,
   `ClearAllImmediately` on fire-out).
 - **Why removed:** read as buggy scattering — burning zombies abandoning the attack looked broken,
   not like crowd control. A molotov's value is the burn damage, not panic.
-- **Replaced by:** nothing — burning zombies keep the normal Wandering/Chasing/attack behavior
-  while on fire.
+- **Replaced by:** nothing scripted. Burning zombies keep the normal Wandering/Chasing/attack
+  behavior — the *engine's* ignited-panic task is suppressed with config flag **430**
+  `CPED_CONFIG_FLAG_IgnoreBeingOnFire` in `MakeZombieLike` (flag 118 alone doesn't stop it, lesson 56).
 
 ---
 
