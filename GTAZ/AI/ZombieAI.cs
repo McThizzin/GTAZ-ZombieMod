@@ -86,6 +86,12 @@ namespace GTAZ.AI
         // Same counter for the horde march task (TASK_GO_TO_COORD_ANY_MEANS can be engine-cleared
         // too - blocked events, task-slot reuse, being bumped mid-march). See the Wandering branch.
         private int _marchStuckTicks;
+        // Burning zombies (molotovs, exploded cars): MakeZombieLike sets config flag 430
+        // (CPED_CONFIG_FLAG_IgnoreBeingOnFire) so they keep attacking instead of fire-panicking,
+        // but that flag ALSO suppresses the engine fire's damage over time - without this, a
+        // molotov'd zombie would burn forever. Re-applies scripted burn damage on a cadence
+        // while ignited or standing in a fire pool (see the burn check in Update).
+        private int _burnCheckTimer;
 
         protected ZombieAI(Ped ped, Vector3 spawnOrigin)
         {
@@ -164,6 +170,24 @@ namespace GTAZ.AI
             }
             if (_waterRecoveryCooldown > 0)
                 _waterRecoveryCooldown--;
+
+            // Re-apply fire damage. MakeZombieLike sets config flag 430 (IgnoreBeingOnFire) so
+            // burning zombies keep pressing Wandering/Chasing/attack instead of the engine's
+            // fire-panic scattering, but the flag also kills the engine fire's damage-over-time -
+            // a molotov'd zombie would stay on fire forever. Every ~0.5s, while the ped is
+            // ignited (or standing in a fire pool, which also covers molotov ground fire), apply
+            // scripted burn damage so it burns to death. Fireproof peds (an immune Horder) are
+            // skipped so the horde immunity isn't script-damaged around.
+            if (++_burnCheckTimer >= 30)
+            {
+                _burnCheckTimer = 0;
+                if (!Ped.IsDead && !Ped.IsFireProof &&
+                    (Ped.IsOnFire || Function.Call<int>(Hash.GET_NUMBER_OF_FIRES_IN_RANGE,
+                        Ped.Position.X, Ped.Position.Y, Ped.Position.Z, 3f) > 0))
+                {
+                    Function.Call(Hash.APPLY_DAMAGE_TO_PED, Ped, 12, false);
+                }
+            }
 
             _tickCounter++;
             if (_tickCounter % _updateInterval != 0)

@@ -733,6 +733,18 @@ control. Flag list lives in the `ePedConfigFlags` enum (citizenfx/natives `PED/S
 task or event path, not the threat response that flag name implies — get the full `ePedConfigFlags`
 enum and look for a direct "Ignore…" flag for the exact state.
 
+### 57. `IgnoreBeingOnFire` (430) suppresses the fire's *damage* too — re-apply burn damage yourself
+**Symptom (post-v1 playtest):** after flag 430 fixed the scattering, molotov'd zombies lit up but
+never took damage — a whole horde of permanent flaming zombies. Flag 430 doesn't just kill the panic
+task; the ped "ignores being on fire" end to end, so the engine fire's damage-over-time never
+applies.
+**Fix:** keep 430 (the panic stays suppressed, zombies keep attacking) and have `ZombieAI.Update`
+apply scripted burn damage on a ~0.5s cadence while `Ped.IsOnFire` or `GET_NUMBER_OF_FIRES_IN_RANGE`
+(3m) > 0, using `APPLY_DAMAGE_TO_PED(ped, 12, false)` so the game handles the death properly. Skip
+fireproof peds (`Ped.IsFireProof`) so an immune Horder isn't script-damaged around its horde.
+**Lesson:** "Ignore X" config flags can gate the whole X system (reaction + damage), not just the
+behavior you wanted. When you suppress one half, you often have to hand-recreate the other half.
+
 ---
 
 ## Superseded lessons (record only — subsystem deleted)

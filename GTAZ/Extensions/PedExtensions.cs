@@ -467,7 +467,9 @@ namespace GTAZ.Extensions
             // screaming CTaskFirePanic is a separate reaction, not a "run from fire" threat
             // response. Flag 430 = CPED_CONFIG_FLAG_IgnoreBeingOnFire suppresses that panic, so
             // a molotov'd zombie keeps pressing its normal Wandering/Chasing/attack behavior
-            // while burning (its crowd-control is the burn damage, not panic).
+            // while burning. Trade-off: the flag also suppresses the engine fire's damage over
+            // time, so ZombieAI.Update re-applies scripted burn damage on a cadence (see the
+            // burn check) - burning zombies keep attacking AND burn to death.
             Function.Call(Hash.SET_PED_CONFIG_FLAG, ped, 430, true);
 
             // Pathfinding hints to stay out of water. The pathfinder does not honor these for

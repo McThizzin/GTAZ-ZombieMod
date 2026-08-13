@@ -53,6 +53,8 @@ what failed, why, and what replaced it. The verified lessons behind these are in
 - **Replaced by:** nothing scripted. Burning zombies keep the normal Wandering/Chasing/attack
   behavior — the *engine's* ignited-panic task is suppressed with config flag **430**
   `CPED_CONFIG_FLAG_IgnoreBeingOnFire` in `MakeZombieLike` (flag 118 alone doesn't stop it, lesson 56).
+  Because 430 also suppresses the engine fire's damage, `ZombieAI.Update` re-applies scripted burn
+  damage on a ~0.5s cadence so flaming zombies still burn to death (lesson 57).
 
 ---
 
