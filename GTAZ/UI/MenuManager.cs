@@ -713,7 +713,7 @@ namespace GTAZ.UI
             float y = 0.2f;
             foreach (var (name, seconds) in graces)
             {
-                DrawCenteredText($"~ Return to {name} to continue the fight - {seconds}s", y, 0.55f, 255, 255, 255, 235);
+                DrawCenteredText($"Return to {name} to continue the fight - {seconds}s", y, 0.55f, 255, 255, 255, 235);
                 y += 0.032f;
             }
         }

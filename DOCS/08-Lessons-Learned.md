@@ -700,6 +700,20 @@ churn).
 needs a deadband — otherwise boundary oscillation becomes task-restart stutter (lesson 5 again, in a
 new shape).
 
+### 55. A bare `~` swallows the whole line of GTA text — the leave-grace countdown rendered nothing
+**Symptom (post-v1 playtest):** the new territory leave-grace countdown ("Return to {zone} to
+continue the fight - Ns") never showed. Player leaving a hostile zone mid-takeover saw no message at
+all, and re-entering after a while respawned the initial defenders (the takeover had silently reset).
+**Root cause:** the string was built as `$"~ Return to {name}..."` — the `~` was meant as a decorative
+marker, but GTA text components (`ADD_TEXT_COMPONENT_SUBSTRING_PLAYER_NAME` / `BEGIN_TEXT_COMMAND_DISPLAY_TEXT`
+"STRING") treat `~` as the start of a formatting token (`~g~`, `~s~`, `~w~`). The parser looked for a
+terminating `~`, found none, and discarded the entire rest of the string — so nothing rendered and the
+10s grace window existed only invisibly.
+**Fix:** never start (or embed, without a matching close) a `~` in any GTA text string. The countdown
+now reads `$"Return to {name} to continue the fight - {seconds}s"`.
+**Lesson:** GTA text commands have a mini-markup language — treat `~` like an escape char. If a text
+line "isn't showing", grep it for a stray `~` before suspecting draw position/visibility.
+
 ---
 
 ## Superseded lessons (record only — subsystem deleted)
