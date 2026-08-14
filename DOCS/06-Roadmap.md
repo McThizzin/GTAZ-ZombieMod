@@ -52,8 +52,11 @@ request — ambient + horde spawning is the zombie flow). See `10-Archive.md`.
 
 ## 5. Next: Phase 5 — Polish & Balance
 
-- [ ] Attack anim alternatives (biting/clawing vs. punch)
-- [ ] Facial expression tuning
+- [x] Attack anim alternatives (biting/clawing vs. punch) — **done**: 4 `heavy_punch_*_var_*`
+      variations random-picked per swing (`ZombieAI.AttackAnimVariations`), anim dict preloaded
+      (TASK_PLAY_ANIM needs REQUEST_ANIM_DICT first)
+- [ ] Facial expression tuning — attempted (`ApplyBurningFace`: `SET_FACIAL_CLIPSET` +
+      `SET_FACIAL_IDLE_ANIM_OVERRIDE` "burning_1"); **user reports it has never worked at all**
 - [ ] Spawn position LOS/walkable check
 - [ ] Playtesting, density/perf tuning at 80 zombies
 - [ ] v1 regression pass: retest hordes, ambient zombies, transient survivors, territory capture,

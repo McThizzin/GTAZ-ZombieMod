@@ -33,6 +33,7 @@ namespace GTAZ.UI
         public NativeMenu DebugMenu { get; }
 
         // Settings: Zombies submenu
+        private NativeCheckboxItem _showBlips;
         private NativeSliderItem _targetCount;
         private NativeSliderItem _maxBudget;
         private NativeSliderItem _spawnRadius;
@@ -41,7 +42,6 @@ namespace GTAZ.UI
         private NativeCheckboxItem _nightRunners;
         private NativeSliderItem _nightRunnerChance;
         private NativeSliderItem _territoryZombieCap;
-        private NativeCheckboxItem _showBlips;
         private NativeSliderItem _zombieHealth;
         private NativeSliderItem _zombieDamage;
 
@@ -53,33 +53,34 @@ namespace GTAZ.UI
 
         // Settings: Survivors submenu
         private NativeCheckboxItem _survivorsEnabled;
+        private NativeCheckboxItem _showSurvivorBlips;
         private NativeSliderItem _survivorCount;
         private NativeSliderItem _cowardChance;
         private NativeSliderItem _survivorDespawn;
-        private NativeCheckboxItem _showSurvivorBlips;
 
         // Faction submenu
         private NativeCheckboxItem _enableFactions;
+        private NativeCheckboxItem _showFactionBlips;
         private NativeSliderItem _factionSpawnTarget;
         private NativeSliderItem _outpostDefenders;
         private NativeSliderItem _banditPatrol;
         private NativeSliderItem _maxRecruits;
         private NativeSliderItem _recruitCombatRange;
-        private NativeCheckboxItem _showFactionBlips;
         private NativeItem _factionStatusItem;
 
         // Territory submenu
+        private NativeCheckboxItem _showTerritoryBlips;
+        private NativeCheckboxItem _showTerritoryRadii;
         private NativeSliderItem _maxZones;
         private NativeSliderItem _territoryAttackInterval;
         private NativeSliderItem _reinforcementWaves;
         private NativeSliderItem _territoryKillQuota;
         private NativeSliderItem _leaveGraceSeconds;
-        private NativeCheckboxItem _showTerritoryBlips;
-        private NativeCheckboxItem _showTerritoryRadii;
         private NativeItem _zoneStatusItem;
 
         // Settings: Horde submenu
         private NativeCheckboxItem _hordeEnabled;
+        private NativeCheckboxItem _showHordeBlips;
         private NativeSliderItem _hordeInterval;
         private NativeSliderItem _maxHordeSize;
         private NativeSliderItem _wanderingHordeSize;
@@ -89,7 +90,6 @@ namespace GTAZ.UI
         private NativeSliderItem _hordeSpawnMax;
         private NativeSliderItem _hordeDespawn;
         private NativeSliderItem _hordeRunnerChance;
-        private NativeCheckboxItem _showHordeBlips;
         private NativeSliderItem _hordeEngageDistance;
         private NativeCheckboxItem _horderInvulnerable;
 
@@ -171,9 +171,6 @@ namespace GTAZ.UI
             _showFactionBlips = new NativeCheckboxItem("Show Faction Blips", "Colored markers for faction peds", config.ShowFactionBlips);
             _factionStatusItem = new NativeItem("Faction Status", "Live faction state");
 
-            var recruitInfo = new NativeItem("Recruiting",
-                $"Press {config.SoftAimKey} to toggle a reticule at a survivor (no weapon raised), then press {config.RecruitKey} to recruit. {config.RecruitKey} also works at the plain crosshair. Press again on a recruit to dismiss.");
-
             _enableFactions.CheckboxChanged += (s, a) =>
             {
                 config.EnableFactions = _enableFactions.Checked;
@@ -193,13 +190,10 @@ namespace GTAZ.UI
             };
 
             FactionMenu.Add(_enableFactions);
+            FactionMenu.Add(_showFactionBlips);
             FactionMenu.Add(_factionSpawnTarget);
             FactionMenu.Add(_outpostDefenders);
             FactionMenu.Add(_banditPatrol);
-            FactionMenu.Add(_maxRecruits);
-            FactionMenu.Add(_recruitCombatRange);
-            FactionMenu.Add(_showFactionBlips);
-            FactionMenu.Add(recruitInfo);
             FactionMenu.Add(_factionStatusItem);
 
             FactionMenu.Closed += (s, a) => ModConfig.Current.Save();
@@ -251,15 +245,15 @@ namespace GTAZ.UI
 
             var surrenderTerritory = new NativeItem("Surrender Territory", "Gives up the territory you're standing in, freeing a slot to capture another");
             surrenderTerritory.Activated += (s, a) => _factions.SurrenderCurrentZone();
-            TerritoryMenu.Add(surrenderTerritory);
 
+            TerritoryMenu.Add(surrenderTerritory);
+            TerritoryMenu.Add(_showTerritoryBlips);
+            TerritoryMenu.Add(_showTerritoryRadii);
             TerritoryMenu.Add(_maxZones);
             TerritoryMenu.Add(_territoryAttackInterval);
             TerritoryMenu.Add(_reinforcementWaves);
             TerritoryMenu.Add(_territoryKillQuota);
             TerritoryMenu.Add(_leaveGraceSeconds);
-            TerritoryMenu.Add(_showTerritoryBlips);
-            TerritoryMenu.Add(_showTerritoryRadii);
             TerritoryMenu.Add(_zoneStatusItem);
 
             TerritoryMenu.Closed += (s, a) => ModConfig.Current.Save();
@@ -354,6 +348,7 @@ namespace GTAZ.UI
             _zombieHealth.ValueChanged += (s, a) => config.ZombieHealth = _zombieHealth.Value;
             _zombieDamage.ValueChanged += (s, a) => config.ZombieDamage = _zombieDamage.Value;
 
+            zombiesMenu.Add(_showBlips);
             zombiesMenu.Add(_targetCount);
             zombiesMenu.Add(_maxBudget);
             zombiesMenu.Add(_spawnRadius);
@@ -362,7 +357,6 @@ namespace GTAZ.UI
             zombiesMenu.Add(_territoryZombieCap);
             zombiesMenu.Add(_nightRunners);
             zombiesMenu.Add(_nightRunnerChance);
-            zombiesMenu.Add(_showBlips);
             zombiesMenu.Add(_zombieHealth);
             zombiesMenu.Add(_zombieDamage);
 
@@ -464,6 +458,7 @@ namespace GTAZ.UI
             _horderInvulnerable.CheckboxChanged += (s, a) => config.HorderInvulnerableWithHorde = _horderInvulnerable.Checked;
 
             hordeMenu.Add(_hordeEnabled);
+            hordeMenu.Add(_showHordeBlips);
             hordeMenu.Add(_hordeInterval);
             hordeMenu.Add(_maxHordeSize);
             hordeMenu.Add(_wanderingHordeSize);
@@ -473,7 +468,6 @@ namespace GTAZ.UI
             hordeMenu.Add(_hordeSpawnMax);
             hordeMenu.Add(_hordeDespawn);
             hordeMenu.Add(_hordeRunnerChance);
-            hordeMenu.Add(_showHordeBlips);
             hordeMenu.Add(_hordeEngageDistance);
             hordeMenu.Add(_horderInvulnerable);
 
@@ -510,10 +504,17 @@ namespace GTAZ.UI
             };
 
             survivorsMenu.Add(_survivorsEnabled);
+            survivorsMenu.Add(_showSurvivorBlips);
             survivorsMenu.Add(_survivorCount);
             survivorsMenu.Add(_cowardChance);
             survivorsMenu.Add(_survivorDespawn);
-            survivorsMenu.Add(_showSurvivorBlips);
+
+            // Recruiting is survivor-side, not faction-side: the follow cap, combat range, and
+            // how-to blurb live here with Dismiss All Recruits.
+            survivorsMenu.Add(_maxRecruits);
+            survivorsMenu.Add(_recruitCombatRange);
+            survivorsMenu.Add(new NativeItem("Recruiting",
+                $"Press {config.SoftAimKey} to toggle a reticule at a survivor (no weapon raised), then press {config.RecruitKey} to recruit. {config.RecruitKey} also works at the plain crosshair. Press again on a recruit to dismiss."));
 
             var dismissRecruits = new NativeItem("Dismiss All Recruits", "Releases every survivor following you");
             dismissRecruits.Activated += (s, a) => _factions.DismissAllRecruits();
@@ -616,20 +617,20 @@ namespace GTAZ.UI
             _showSpawnRadiusRing.CheckboxChanged += (s, a) => config.ShowSpawnRadiusRing = _showSpawnRadiusRing.Checked;
             _spawnRadiusRingMeters.ValueChanged += (s, a) => config.SpawnRadiusRingMeters = _spawnRadiusRingMeters.Value;
 
+            DebugMenu.Add(saveGame);
+            DebugMenu.Add(loadGame);
             DebugMenu.Add(spawnZombie);
             DebugMenu.Add(spawnRunner);
             DebugMenu.Add(killAll);
             DebugMenu.Add(clearAll);
-            DebugMenu.Add(saveGame);
-            DebugMenu.Add(loadGame);
             DebugMenu.Add(triggerWander);
             DebugMenu.Add(triggerNight);
             DebugMenu.Add(clearHordes);
-            DebugMenu.Add(_statusItem);
             DebugMenu.Add(_showPlayerCoords);
-            DebugMenu.Add(_statusOverlay);
             DebugMenu.Add(_showSpawnRadiusRing);
             DebugMenu.Add(_spawnRadiusRingMeters);
+            DebugMenu.Add(_statusOverlay);
+            DebugMenu.Add(_statusItem);
 
             DebugMenu.Closed += (s, a) => ModConfig.Current.Save();
         }
