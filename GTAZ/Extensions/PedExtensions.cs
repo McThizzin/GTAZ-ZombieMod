@@ -41,13 +41,24 @@ namespace GTAZ.Extensions
 
         public static bool IsAttackAnimReady => _attackAnimLoaded;
 
-        // SET_FACIAL_IDLE_ANIM_OVERRIDE with a dict that isn't streamed in silently fails,
-        // same class of bug as unloaded clipsets/animation dicts. The burned-face override
-        // is gated on these loading (see MakeZombieLike).
+        // SET_FACIAL_IDLE_ANIM_OVERRIDE / PLAY_FACIAL_ANIM with a dict that isn't streamed in
+        // silently fails, same class of bug as unloaded clipsets/animation dicts. The facial
+        // overrides are gated on these loading (see ApplyZombieFace).
         private const string FacialDictMale = "facials@gen_male@base";
         private const string FacialDictFemale = "facials@gen_female@base";
         private static bool _facialDictsLoaded;
         private static bool _facialDictsLoadFailed;
+
+        // Mood expressions are the lesson-12-verified anim names (mood_pain_1 is NOT real;
+        // these are). Zombies get one at random at spawn so the horde doesn't all wear the
+        // same face. The earlier "burning_1" burned-face attempt never rendered and is dropped.
+        public static readonly string[] FacialMoodAnims =
+        [
+            "mood_angry_1",
+            "mood_injured_1",
+            "mood_drunk_1",
+            "mood_scared_1"
+        ];
 
         public static void EnsureFacialDictsLoaded()
         {
@@ -498,14 +509,9 @@ namespace GTAZ.Extensions
             // on a clip set we haven't confirmed is actually resident.
 
             Function.Call(Hash.STOP_PED_SPEAKING, ped, true);
-            // Burned-face expression override. SET_FACIAL_IDLE_ANIM_OVERRIDE takes
-            // (ped, animName, animDict). burning_1 lives in per-skeleton facial dicts, and
-            // both a wrong dict AND an unloaded dict silently fail - "facials@p_m_one@base"
-            // is a story-character skeleton (zombies are random civilians), and the generic
-            // gen_* dicts have to be streamed in first like any other anim dict. The game
-            // also clears the override whenever the ped starts a new task, so ZombieAI
-            // re-applies this on a short cadence (ApplyBurningFace).
-            ped.ApplyBurningFace();
+            // Facial expression + gore are applied by the ZombieAI ctor right after this
+            // (ApplyZombieFace / ApplyZombieFaceGore) - the random mood choice is stored
+            // per-zombie there so the per-task re-apply in Update re-uses it.
         }
 
         private static readonly WeaponHash[] SurvivorWeapons =
@@ -606,18 +612,39 @@ namespace GTAZ.Extensions
             return ped.Gender == Gender.Female ? "facials@gen_female@base" : "facials@gen_male@base";
         }
 
-        public static void ApplyBurningFace(this Ped ped)
+        // Persistent facial expression. SET_FACIAL_CLIPSET (0x5687C7F05B39E401) is the same
+        // native as the undocumented _SET_FACIAL_CLIPSET_OVERRIDE and is required to actually
+        // switch the ped onto the per-gender facial clipset - SET_FACIAL_IDLE_ANIM_OVERRIDE
+        // against the default clipset silently fails. The clipset persists once set; only the
+        // idle override is cleared when the ped starts a new task, so re-applies pass
+        // reapply:true to skip re-setting the clipset.
+        public static void ApplyZombieFace(this Ped ped, string anim, bool reapply)
         {
             if (!_facialDictsLoaded)
                 return;
-            // SET_FACIAL_CLIPSET (0x5687C7F05B39E401) is the same native as the
-            // undocumented _SET_FACIAL_CLIPSET_OVERRIDE, and is required to actually
-            // switch the ped onto the per-gender facial clipset. Calling only
-            // SET_FACIAL_IDLE_ANIM_OVERRIDE against the default clipset silently
-            // fails, which is why burning_1 never played.
             string dict = GetFacialAnimDict(ped);
-            Function.Call(Hash.SET_FACIAL_CLIPSET, ped, dict);
-            Function.Call(Hash.SET_FACIAL_IDLE_ANIM_OVERRIDE, ped, "burning_1", dict);
+            if (!reapply)
+                Function.Call(Hash.SET_FACIAL_CLIPSET, ped, dict);
+            Function.Call(Hash.SET_FACIAL_IDLE_ANIM_OVERRIDE, ped, anim, dict);
+        }
+
+        // One-shot facial anim. PLAY_FACIAL_ANIM is visible even mid-task, unlike the idle
+        // override which the engine clears whenever the ped starts a new task (zombies are
+        // almost never idle) - ZombieAI fires this on a slow cadence so the expression shows.
+        public static void PlayZombieFaceAnim(this Ped ped, string anim)
+        {
+            if (!_facialDictsLoaded)
+                return;
+            Function.Call(Hash.PLAY_FACIAL_ANIM, ped, anim, GetFacialAnimDict(ped));
+        }
+
+        // Guaranteed-visible undead face: permanent blood/gore damage packs. Reference values
+        // from GTAV-SimpleZombies ZombieCreator (BigHitByVehicle + ExplosionMed) with damage 0
+        // so it's cosmetic only - reads as "zombie" even if the facial rig never renders an anim.
+        public static void ApplyZombieFaceGore(this Ped ped)
+        {
+            Function.Call(Hash.APPLY_PED_DAMAGE_PACK, ped, "BigHitByVehicle", 0f, 0.6f);
+            Function.Call(Hash.APPLY_PED_DAMAGE_PACK, ped, "ExplosionMed", 0f, 0.6f);
         }
 
         public static void ResetClipsets(this Ped ped)

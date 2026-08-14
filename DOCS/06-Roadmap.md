@@ -55,8 +55,10 @@ request — ambient + horde spawning is the zombie flow). See `10-Archive.md`.
 - [x] Attack anim alternatives (biting/clawing vs. punch) — **done**: 4 `heavy_punch_*_var_*`
       variations random-picked per swing (`ZombieAI.AttackAnimVariations`), anim dict preloaded
       (TASK_PLAY_ANIM needs REQUEST_ANIM_DICT first)
-- [ ] Facial expression tuning — attempted (`ApplyBurningFace`: `SET_FACIAL_CLIPSET` +
-      `SET_FACIAL_IDLE_ANIM_OVERRIDE` "burning_1"); **user reports it has never worked at all**
+- [ ] Facial expression tuning — **rework in progress (lesson 58)**: the old idle override was
+      cleared by the engine on every task start (zombies are never idle) and `burning_1` never
+      rendered. Layered approach: random lesson-12-verified `mood_*` per zombie (`ApplyZombieFace`),
+      mid-task `PLAY_FACIAL_ANIM` one-shots, + permanent gore damage packs (`ApplyZombieFaceGore`)
 - [ ] Spawn position LOS/walkable check
 - [ ] Playtesting, density/perf tuning at 80 zombies
 - [ ] v1 regression pass: retest hordes, ambient zombies, transient survivors, territory capture,

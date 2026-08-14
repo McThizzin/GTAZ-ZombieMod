@@ -745,6 +745,21 @@ fireproof peds (`Ped.IsFireProof`) so an immune Horder isn't script-damaged arou
 **Lesson:** "Ignore X" config flags can gate the whole X system (reaction + damage), not just the
 behavior you wanted. When you suppress one half, you often have to hand-recreate the other half.
 
+### 58. Facial idle override never shows because it clears on every task start
+**Symptom (long-standing):** zombies never showed any facial expression — the burned-face override
+(`SET_FACIAL_IDLE_ANIM_OVERRIDE` `"burning_1"`) "never worked at all."
+**Root cause:** (a) the engine clears the override whenever the ped starts a new task, and zombies
+are almost never idle — wander/chase/attack anims restart it constantly, so a spawn-time apply only
+showed in sub-second windows; (b) `"burning_1"` as an anim name was never verified to exist.
+**Fix (layered, each layer visible independently):** use the lesson-12-verified `mood_*` names,
+randomized per zombie at spawn (`PedExtensions.FacialMoodAnims`); re-apply the override on a ~0.5s
+cadence AND fire `PLAY_FACIAL_ANIM` one-shots on a ~5s cadence (those play mid-task); and add
+permanent gore via `APPLY_PED_DAMAGE_PACK` (`"BigHitByVehicle"`/`"ExplosionMed"`, damage 0 — values
+from the SimpleZombies reference) so the undead face reads even if the facial rig never animates.
+**Lesson:** a "persistent" facial/anim override the engine clears on every task change needs a
+re-apply cadence tied to real behavior plus a second mechanism (one-shot facial anim) that isn't
+cleared — don't bet the whole feature on one silent-fail-prone native.
+
 ---
 
 ## Superseded lessons (record only — subsystem deleted)

@@ -56,6 +56,7 @@ namespace GTAZ.AI
         // Confirmed present in anim@ingame@melee@unarmed@streamed_variations_zombie.
         // Picked at random per swing so consecutive hits don't all play the same strike.
         private static readonly Random _attackAnimRng = new();
+        private static readonly Random _facialRng = new();
         private static readonly string[] AttackAnimVariations =
         [
             "heavy_punch_b_var_2",
@@ -67,6 +68,10 @@ namespace GTAZ.AI
         // Tracks which variation is currently mid-swing so OnAttack() can skip re-issuing
         // the anim while it's still playing (see PlayAttackAnim).
         private string _currentAttackAnim;
+        // Per-zombie facial expression (random mood from PedExtensions.FacialMoodAnims,
+        // picked in the ctor). The engine clears SET_FACIAL_IDLE_ANIM_OVERRIDE on every task
+        // start, so Update re-applies it on a cadence and fires PLAY_FACIAL_ANIM one-shots.
+        private readonly string _facialAnim;
         private int _facialOverrideTimer;
 
         protected int _attackCooldown;
@@ -101,6 +106,9 @@ namespace GTAZ.AI
             ped.BlockPermanentEvents = true;
             ped.MakeZombieLike();
             Type = ZombieType.Walker;
+            _facialAnim = PedExtensions.FacialMoodAnims[_facialRng.Next(PedExtensions.FacialMoodAnims.Length)];
+            Ped.ApplyZombieFace(_facialAnim, false);
+            Ped.ApplyZombieFaceGore();
         }
 
         public virtual void Update()
@@ -120,10 +128,16 @@ namespace GTAZ.AI
 
             // The game clears SET_FACIAL_IDLE_ANIM_OVERRIDE whenever the ped starts a new
             // task (wander/chase/attack anims), so a one-time apply at spawn only shows on
-            // true idles - and zombies are almost never idle. Re-apply on a short cadence
-            // to keep the burned face up. ApplyBurningFace no-ops until the dicts are loaded.
+            // true idles - and zombies are almost never idle. Re-apply the expression on a
+            // short cadence, and fire a PLAY_FACIAL_ANIM one-shot on a slower cadence: those
+            // play even mid-task, so the face is actually visible. Both no-op until the
+            // facial dicts are loaded.
             if (++_facialOverrideTimer % 30 == 0)
-                Ped.ApplyBurningFace();
+            {
+                Ped.ApplyZombieFace(_facialAnim, true);
+                if (_facialOverrideTimer % 300 == 0)
+                    Ped.PlayZombieFaceAnim(_facialAnim);
+            }
 
             if (Ped.Health <= 30 && Ped.Health > 0 && !Ped.IsDead)
             {
