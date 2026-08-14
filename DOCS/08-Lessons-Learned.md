@@ -760,6 +760,27 @@ from the SimpleZombies reference) so the undead face reads even if the facial ri
 re-apply cadence tied to real behavior plus a second mechanism (one-shot facial anim) that isn't
 cleared — don't bet the whole feature on one silent-fail-prone native.
 
+### 59. STOP_PED_SPEAKING only mutes ambient dialogue (per-ped); death noise is pain audio
+**Symptom:** the playtester thought the mod was "stopping all peds from saying anything or making
+noises," and zombies still voiced a vanilla human groan when killed.
+**Root cause:** `STOP_PED_SPEAKING(ped, true)` is strictly per-ped and only disables *ambient
+dialogue* — the NATIVES doc explicitly says it "doesn't stop a piece of dialogue that has been
+triggered" and it touches nothing in the pain/death-groan path. Death sounds run through
+`PLAY_PAIN` (`eAudDamageReason`: `DYING_MOAN`=27, `ENTERING_RAGDOLL_DEATH`=14), a separate audio
+system. The "whole world is silent" impression was the mod's own ambient-population clearing
+(`WorldSystem.ClearAmbientPopulation` + most alive peds being muted zombies), not a global mute.
+**Fix:** set both `STOP_PED_SPEAKING(ped, true)` and `DISABLE_PED_PAIN_AUDIO(ped, true)` ONCE at
+spawn (both persist; the per-frame `STOP_PED_SPEAKING` in `ZombieAI.Update` was redundant).
+Pain audio being disabled also mutes scripted `PLAY_PAIN`, so scripted zombie gurgles/moans
+re-enable it for a single call — `DISABLE_PED_PAIN_AUDIO(ped,false)` → `PLAY_PAIN` → re-disable
+(the SimpleZombies reference does the same dance before its scream). The scripted death moan fires
+on the exact death frame inside `Update` (the ped is still audio-valid there, the same moment the
+engine would have voiced the vanilla groan), replacing it. Reasons stay in the gurgle/moan family
+(WHEEZE/COUGH/WHIMPER/small+large grunts/`DYING_MOAN`) — `scream_panic`/`terror`/`on_fire` are human
+screams the player explicitly dropped.
+**Lesson:** speech and pain/death audio are two different systems; "mute a ped" needs both natives,
+called once at spawn — and pain audio must be re-enabled before scripted `PLAY_PAIN` sounds.
+
 ---
 
 ## Superseded lessons (record only — subsystem deleted)

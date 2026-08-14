@@ -59,6 +59,14 @@ request — ambient + horde spawning is the zombie flow). See `10-Archive.md`.
       cleared by the engine on every task start (zombies are never idle) and `burning_1` never
       rendered. Layered approach: random lesson-12-verified `mood_*` per zombie (`ApplyZombieFace`),
       mid-task `PLAY_FACIAL_ANIM` one-shots, + permanent gore damage packs (`ApplyZombieFaceGore`)
+- [x] Zombie audio rework — **done (lesson 59)**: per-frame `STOP_PED_SPEAKING` removed (it only
+      mutes ambient dialogue, per-ped, and persists once set); `DISABLE_PED_PAIN_AUDIO` at spawn
+      kills the vanilla human pain/death screams; scripted gurgle/moan cadence (`PLAY_PAIN` reasons
+      WHEEZE/COUGH/WHIMPER/grunts, player-range gated) + scripted `DYING_MOAN` on death. GTA V
+      single-player has no way for a script to play arbitrary .ogg by name — custom zombie audio
+      needs an AWC audio pack or an external player (deferred below)
+- [ ] Custom zombie audio files (AWC pack or NAudio) — deferred until sound files are chosen; the
+      built-in gurgle/moan triggers are already wired so custom audio drops into the same points
 - [ ] Spawn position LOS/walkable check
 - [ ] Playtesting, density/perf tuning at 80 zombies
 - [ ] v1 regression pass: retest hordes, ambient zombies, transient survivors, territory capture,

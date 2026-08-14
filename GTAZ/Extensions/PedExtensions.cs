@@ -509,6 +509,11 @@ namespace GTAZ.Extensions
             // on a clip set we haven't confirmed is actually resident.
 
             Function.Call(Hash.STOP_PED_SPEAKING, ped, true);
+            // Suppress the engine's automatic pain/death groans (the vanilla human scream on a
+            // gunshot kill and the death moan) - scripted zombie gurgles/moans are played by
+            // ZombieAI instead, which re-enables pain audio for the single PLAY_PAIN call
+            // (pain sounds are muted while pain audio is disabled - reference-mod verified).
+            Function.Call(Hash.DISABLE_PED_PAIN_AUDIO, ped, true);
             // Facial expression + gore are applied by the ZombieAI ctor right after this
             // (ApplyZombieFace / ApplyZombieFaceGore) - the random mood choice is stored
             // per-zombie there so the per-task re-apply in Update re-uses it.

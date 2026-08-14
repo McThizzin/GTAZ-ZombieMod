@@ -74,6 +74,28 @@ namespace GTAZ.AI
         private readonly string _facialAnim;
         private int _facialOverrideTimer;
 
+        // Zombie audio. MakeZombieLike sets STOP_PED_SPEAKING + DISABLE_PED_PAIN_AUDIO ONCE at
+        // spawn (both persist), so Update never calls them per-frame. Pain audio being disabled
+        // stops the engine's automatic pain/death groans (the vanilla human scream on gunshot
+        // kills and the death moan); scripted gurgles/moans play here by re-enabling pain audio
+        // for a single PLAY_PAIN call. Reasons are the eAudDamageReason gurgle/moan family - NO
+        // scream_panic/terror/fire, those are human screams the player asked to drop.
+        private const float ZombieSoundRange = 45f;
+        private const int ZombieSoundInterval = 600; // ~10s at 60fps
+        private const int ZombieSoundChance = 40;    // percent per interval
+        private static readonly Random _soundRng = new();
+        private static readonly int[] ZombieGurgleReasons =
+        [
+            18, // AUD_DAMAGE_REASON_WHEEZE
+            19, // AUD_DAMAGE_REASON_COUGH
+            26, // AUD_DAMAGE_REASON_WHIMPER
+            31, // AUD_DAMAGE_REASON_MELEE_SMALL_GRUNT
+            32, // AUD_DAMAGE_REASON_MELEE_LARGE_GRUNT
+            0,  // AUD_DAMAGE_REASON_DEFAULT
+        ];
+        private int _gurgleTimer;
+        private bool _deathMoanPlayed;
+
         protected int _attackCooldown;
         protected bool _ragdollDisabled;
         protected Vector3 _spawnOrigin;
@@ -124,7 +146,25 @@ namespace GTAZ.AI
             if (_attackCooldown > 0)
                 _attackCooldown--;
 
-            Function.Call(Hash.STOP_PED_SPEAKING, Ped, true);
+            // Scripted zombie speech: STOP_PED_SPEAKING + DISABLE_PED_PAIN_AUDIO were set once
+            // at spawn (they persist), so no per-frame call is needed. Play gurgle/moan reasons
+            // on a cadence, gated by player range so a full horde isn't a noise wall. Pain
+            // audio must be re-enabled for the single PLAY_PAIN call (muted while disabled).
+            if (_gurgleTimer <= 0)
+            {
+                if (Ped.Position.DistanceTo2D(Game.Player.Character.Position) < ZombieSoundRange
+                    && _soundRng.Next(100) < ZombieSoundChance)
+                {
+                    Function.Call(Hash.DISABLE_PED_PAIN_AUDIO, Ped, false);
+                    Function.Call(Hash.PLAY_PAIN, Ped, ZombieGurgleReasons[_soundRng.Next(ZombieGurgleReasons.Length)], 0f);
+                    Function.Call(Hash.DISABLE_PED_PAIN_AUDIO, Ped, true);
+                }
+                _gurgleTimer = ZombieSoundInterval;
+            }
+            else
+            {
+                _gurgleTimer--;
+            }
 
             // The game clears SET_FACIAL_IDLE_ANIM_OVERRIDE whenever the ped starts a new
             // task (wander/chase/attack anims), so a one-time apply at spawn only shows on
@@ -152,6 +192,16 @@ namespace GTAZ.AI
             if (Ped.IsDead)
             {
                 State = ZombieState.Dead;
+                // The engine's death groan is suppressed by the spawn-time DISABLE_PED_PAIN_AUDIO,
+                // so the vanilla human moan never fires. Play the scripted zombie death moan here
+                // on the exact frame the ped dies - the same moment the engine would voice it, so
+                // the ped is still audio-valid. Re-enable pain audio for the single PLAY_PAIN call.
+                if (!_deathMoanPlayed)
+                {
+                    _deathMoanPlayed = true;
+                    Function.Call(Hash.DISABLE_PED_PAIN_AUDIO, Ped, false);
+                    Function.Call(Hash.PLAY_PAIN, Ped, 27, 0f); // AUD_DAMAGE_REASON_DYING_MOAN
+                }
                 return;
             }
 
